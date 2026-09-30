@@ -15,7 +15,7 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
-# --- [ 특정 예외 주소 강제 매핑 사전 (API 누락 및 신축 변경 주소 대응) ] ---
+# --- [ 특정 예외 주소 강제 매핑 사전 ] ---
 SPECIAL_EXCEPTIONS = {
     "불로동 268-2": "인천광역시 검단구 금정로 12",
 }
@@ -61,7 +61,6 @@ def master_juso_converter(keyword):
     # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2)
     for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
         if target_key in kw_str:
-            # 기존 주소에서 지번과 예외 키워드를 교체하고 상세 동/호수는 보존
             extra_part = kw_str
             for part in target_key.split():
                 extra_part = extra_part.replace(part, '')
@@ -213,23 +212,10 @@ def master_juso_converter(keyword):
     if not base_road_addr:
         return remove_duplicate_words(kw_str)
 
-    # 7. API 결과 주소에서 법정동 괄호 제거
-    def clean_road_addr(match):
-        content = match.group(1)
-        parts = [p.strip() for p in content.split(',') if p.strip()]
-        valid_parts = [p for p in parts if not (p.endswith('동') or p.endswith('읍') or p.endswith('면') or p.endswith('리'))]
-        if valid_parts:
-            return " " + ", ".join(valid_parts)
-        return ""
+    # 7. API 결과 주소의 괄호 포맷 유지 (법정동 및 아파트명 괄호 보존)
+    # 기존 코드의 괄호 제거 로직을 제거하여 (간석동, 간석LH2단지아파트) 형태를 그대로 유지합니다.
 
-    base_road_addr = re.sub(r'\s*\(([^)]+)\)', clean_road_addr, base_road_addr)
-
-    # 8. 아파트/건물명 보완 결합
-    target_bd = api_bd_nm.strip() if api_bd_nm else building_name_candidate.strip()
-    if target_bd and target_bd not in base_road_addr:
-        base_road_addr = f"{base_road_addr} {target_bd}"
-
-    # 9. 상세 부가정보 재결합
+    # 8. 상세 부가정보 재결합 (항상 괄호 포맷 뒤편 최하단에 배치)
     full_result = base_road_addr
     if extra_details:
         needed_details = []
