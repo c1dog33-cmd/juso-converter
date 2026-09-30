@@ -43,14 +43,14 @@ def remove_duplicate_words(addr_str):
             
     return ' '.join(clean_words)
 
-# --- [ 만능 주소 변환 엔진 (긴 단지명/신축 아파트 강건화 보완) ] ---
+# --- [ 만능 주소 변환 엔진 (검단구/서해구 맞춤 검색 로직 강화) ] ---
 def master_juso_converter(keyword):
     if not keyword or pd.isna(keyword):
         return keyword
         
     kw_str = str(keyword).strip()
     
-    # 1. 건물명 뒤 '4304-104' 형태를 '4304동 104호'로 자동 변환
+    # 1. 건물명 뒤 '103-401' 형태를 '103동 401호'로 자동 변환
     tokens_init = kw_str.split()
     processed_tokens = []
     for i, t in enumerate(tokens_init):
@@ -106,22 +106,37 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # 6. 다단계 검색 후보군 생성 (순수 지번 검색 최우선)
+    # 6. 다단계 검색 후보군 생성 (검단구 / 서해구 변환 최우선)
     query_candidates = []
     
-    # (1) 순수 지번 검색 (긴 건물명 실패 방지) -> 예: 인천광역시 서구 불로동 965-2
+    # [맞춤 보완 1] 불로동 -> 검단구 변환
+    if '불로동' in kw_str:
+        geomdan_q = kw_str.replace('서구', '검단구')
+        if sido_sigungu_dong and jibeon_token:
+            query_candidates.append(f"인천광역시 검단구 불로동 {jibeon_token}")
+        query_candidates.append(geomdan_q)
+
+    # [맞춤 보완 2] 일반 서구 -> 서해구 변환
+    elif '서구' in kw_str:
+        seohae_q = kw_str.replace('서구', '서해구')
+        if sido_sigungu_dong and jibeon_token:
+            seohae_dong = sido_sigungu_dong.replace('서구', '서해구')
+            query_candidates.append(f"{seohae_dong} {jibeon_token}")
+        query_candidates.append(seohae_q)
+
+    # (3) 기본 순수 지번 검색
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
-    # (2) 전체 키워드 검색
+    # (4) 전체 키워드 검색
     if search_q1 and search_q1 not in query_candidates:
         query_candidates.append(search_q1)
         
-    # (3) 행정구역 + 건물명 검색
+    # (5) 행정구역 + 건물명 검색
     if sido_sigungu_dong and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
 
-    # (4) 원본 입력값
+    # (6) 원본 입력값
     if kw_str not in query_candidates:
         query_candidates.append(kw_str)
 
