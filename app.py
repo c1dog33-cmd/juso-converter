@@ -15,25 +15,27 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
+# --- [ 괄호 안 및 텍스트 중복 단어 완벽 제거 정제 함수 보완 ] ---
 def remove_duplicate_words(addr_str):
     if not addr_str:
         return addr_str
     
-    bd_match = re.search(r'\(([^)]+)\)', addr_str)
-    if bd_match:
-        inner_bracket = bd_match.group(1)
-        bracket_parts = [p.strip() for p in inner_bracket.split(',')]
-        
-        seen = set()
-        unique_parts = []
-        for p in bracket_parts:
-            if p and p not in seen:
-                seen.add(p)
-                unique_parts.append(p)
-        
-        new_inner = ", ".join(unique_parts)
-        addr_str = addr_str[:bd_match.start(1)] + new_inner + addr_str[bd_match.end(1):]
+    # 괄호 내부 정리 (예: (대의동, 수도악기 ( 대의동)) -> 중복 제거)
+    def clean_bracket(match):
+        inner = match.group(1)
+        # 괄호 안을 콤마 기준으로 분리 후 공백 제거
+        parts = [p.strip() for p in re.split(r'[,()]', inner) if p.strip()]
+        seen = []
+        for p in parts:
+            # 대소문자 구분 없이 혹은 완전 일치하는 중복 제거
+            if p not in seen:
+                seen.append(p)
+        return f"({', '.join(seen)})"
 
+    # 중첩되거나 반복되는 괄호 패턴 정돈
+    addr_str = re.sub(r'\(([^)]+)\)', clean_bracket, addr_str)
+    
+    # 일반 단어 중복 제거
     words = addr_str.split()
     clean_words = []
     for w in words:
@@ -43,14 +45,14 @@ def remove_duplicate_words(addr_str):
             
     return ' '.join(clean_words)
 
-# --- [ 만능 주소 변환 엔진 (검단구/서해구 맞춤 검색 로직 강화) ] ---
+# --- [ 만능 주소 변환 엔진 ] ---
 def master_juso_converter(keyword):
     if not keyword or pd.isna(keyword):
         return keyword
         
     kw_str = str(keyword).strip()
     
-    # 1. 건물명 뒤 '103-401' 형태를 '103동 401호'로 자동 변환
+    # 1. 건물명 뒤 '103-401' 형태를 '103동 104호'로 자동 변환
     tokens_init = kw_str.split()
     processed_tokens = []
     for i, t in enumerate(tokens_init):
@@ -69,7 +71,7 @@ def master_juso_converter(keyword):
     kw_str = re.sub(r'(\d+동|\d+호|\d+층|B\d+호|물리치료실)', r' \1 ', kw_str)
     kw_str = ' '.join(kw_str.split())
     
-    # 3. 특수 예외 처리
+    # 3. 특수 예외 처리 (월산동 등)
     if '월산동 986-3' in kw_str or '월산동 986' in kw_str:
         extra = kw_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 (월산동) {extra}".strip())
@@ -87,7 +89,7 @@ def master_juso_converter(keyword):
             
     search_q1 = " ".join(base_tokens)
     
-    # 5. 스마트 토큰 분리 (시도/시군구/동 + 지번 + 건물명)
+    # 5. 스마트 토큰 분리
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
     building_tokens = []
@@ -106,17 +108,14 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # 6. 다단계 검색 후보군 생성 (검단구 / 서해구 변환 최우선)
+    # 6. 다단계 검색 후보군 생성
     query_candidates = []
     
-    # [맞춤 보완 1] 불로동 -> 검단구 변환
     if '불로동' in kw_str:
-        geomdan_q = kw_str.replace('서구', '검단구')
         if sido_sigungu_dong and jibeon_token:
             query_candidates.append(f"인천광역시 검단구 불로동 {jibeon_token}")
-        query_candidates.append(geomdan_q)
+        query_candidates.append(kw_str.replace('서구', '검단구'))
 
-    # [맞춤 보완 2] 일반 서구 -> 서해구 변환
     elif '서구' in kw_str:
         seohae_q = kw_str.replace('서구', '서해구')
         if sido_sigungu_dong and jibeon_token:
@@ -124,19 +123,15 @@ def master_juso_converter(keyword):
             query_candidates.append(f"{seohae_dong} {jibeon_token}")
         query_candidates.append(seohae_q)
 
-    # (3) 기본 순수 지번 검색
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
-    # (4) 전체 키워드 검색
     if search_q1 and search_q1 not in query_candidates:
         query_candidates.append(search_q1)
         
-    # (5) 행정구역 + 건물명 검색
     if sido_sigungu_dong and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
 
-    # (6) 원본 입력값
     if kw_str not in query_candidates:
         query_candidates.append(kw_str)
 
