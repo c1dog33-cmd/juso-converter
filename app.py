@@ -196,10 +196,41 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 7. 최종 결과 조합: 도로명 주소 맨 뒤에 상세 부가정보(extra_details) 배치
+    # 7. 최종 결과 조합: 도로명 주소 맨 뒤에 중복되지 않는 상세 부가정보(extra_details) 배치
     full_result = base_road_addr
     if extra_details:
-        needed_details = [p for p in extra_details if p not in base_road_addr]
+        needed_details = []
+        for p in extra_details:
+            p_clean = re.sub(r'[\s(),]', '', p)
+            base_clean = re.sub(r'[\s(),]', '', base_road_addr)
+            p_norm = p_clean.replace('LH', '엘에이치')
+            base_norm = base_clean.replace('LH', '엘에이치')
+
+            if p_clean and (p_clean in base_clean or p_norm in base_norm):
+                continue
+
+            # API 결과에 이미 포함된 아파트/건물명과 중복되는 괄호 항목 필터링
+            is_redundant_building_paren = False
+            if p.startswith('(') and p.endswith(')'):
+                inner = p[1:-1]
+                inner_norm = re.sub(r'[\s동시구군읍면리아파트빌딩단지]', '', inner).replace('LH', '엘에이치')
+                base_inner_norm = re.sub(r'[\s동시구군읍면리아파트빌딩단지]', '', base_road_addr).replace('LH', '엘에이치')
+                if inner_norm and inner_norm in base_inner_norm:
+                    is_redundant_building_paren = True
+                else:
+                    for token in inner.split(','):
+                        token_clean = token.strip().replace('아파트', '').replace('빌딩', '').replace('단지', '').replace('동', '')
+                        token_norm = token_clean.replace('LH', '엘에이치')
+                        if len(token_norm) >= 2 and token_norm in base_road_addr.replace('LH', '엘에이치'):
+                            is_redundant_building_paren = True
+                            break
+
+            if is_redundant_building_paren:
+                continue
+
+            if p not in base_road_addr:
+                needed_details.append(p)
+
         if needed_details:
             full_result = f"{base_road_addr} {' '.join(needed_details)}"
 
