@@ -74,7 +74,6 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
     # 1. 상세 부가정보(동, 호, 층, 관리실 등) 추출 및 원본에서 분리
-    # 법정동('간석동', '남동구' 등)과 혼동되지 않도록 아파트 전용 동/호수 패턴 사용
     extra_pattern = r'\b(\d+동|[가A-Za-z]동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)\b'
     extra_details = re.findall(extra_pattern, kw_str)
     
@@ -197,10 +196,9 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 7. 최종 결과 조합: 도로명 주소(아파트 괄호 포함) 맨 뒤에 상세 동/호수(extra_details) 배치
+    # 7. 최종 결과 조합
     full_result = base_road_addr
     if extra_details:
-        # 중복 방지하며 상세 정보 결합
         needed_details = [p for p in extra_details if p not in base_road_addr]
         if needed_details:
             full_result = f"{base_road_addr} {' '.join(needed_details)}"
