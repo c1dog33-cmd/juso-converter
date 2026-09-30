@@ -31,7 +31,7 @@ def remove_duplicate_words(addr_str):
     addr_str = re.sub(r'\b(\d{1,4})-(\d{3,4})호?\b', r'\1동 \2호', addr_str)
 
     # 알파벳/한글 동 뒤에 숫자가 바로 붙은 경우 (예: A동202 -> A동 202호)
-    addr_str = re.sub(r'([A-Za-z가-힣]동)(\d+)(?!\s*호)', r'\1 \2호', addr_str)
+    addr_str = re.sub(r'([A-Za-z가-힣]+동)(\d+)(?!\s*호)', r'\1 \2호', addr_str)
 
     words = addr_str.split()
     clean_words = []
@@ -74,8 +74,8 @@ def master_juso_converter(keyword):
             processed_tokens.append(t)
     kw_str = " ".join(processed_tokens)
     
-    # 2. 동/호수/층/가동/나동/A동/B동/관리실/택배보관함 등 상세 정보 자동 띄어쓰기 전처리
-    kw_str = re.sub(r'(\d+동|[가-힣]동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', r' \1 ', kw_str)
+    # 2. 동/호수/층/가동/나동/A동/B동/관리실/택배보관함 등 상세 정보 자동 띄어쓰기 전처리 (버그 수정: [가-힣]+동으로 온전한 동 인식)
+    kw_str = re.sub(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', r' \1 ', kw_str)
     kw_str = ' '.join(kw_str.split())
     
     # 3. 특수 예외 처리 (월산동 등)
@@ -93,9 +93,9 @@ def master_juso_converter(keyword):
         if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
             is_after_jibeon = True
             base_tokens.append(t)
-        elif is_after_jibeon and re.search(r'(\d+동|[가-힣]동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', t):
+        elif is_after_jibeon and re.search(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', t):
             extra_details.append(t)
-        elif not is_after_jibeon and re.search(r'(\d+동|[가-힣]동|\d+호|\d+층|B\d+호)', t):
+        elif not is_after_jibeon and re.search(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호)', t):
             extra_details.append(t)
         else:
             if is_after_jibeon and not any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']):
