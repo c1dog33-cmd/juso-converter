@@ -20,15 +20,15 @@ def remove_duplicate_words(addr_str):
     if not addr_str:
         return addr_str
     
-    # 0. 슬래시 동/호수 최우선 변환 (예: 208/1804 -> 208동 1804호)
+    # 슬래시 동/호수 최우선 변환 (예: 208/1804 -> 208동 1804호)
     addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
     
+    # 하이픈 형태 동/호수 교정 (예: 104- 1503호 또는 104-1503 -> 104동 1503호)
+    addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
+
     # 법정동 띄어쓰기 및 글자 잘림 방지 교정
     addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
     addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
-    
-    # 하이픈 형태 동/호수 교정 (예: 104-1503 -> 104동 1503호)
-    addr_str = re.sub(r'\b(\d{1,4})-(\d{3,4})호?\b', r'\1동 \2호', addr_str)
 
     # 알파벳/한글 동 뒤에 숫자가 바로 붙은 경우 (예: A동202 -> A동 202호)
     addr_str = re.sub(r'([A-Za-z가-힣]+동)(\d+)(?!\s*호)', r'\1 \2호', addr_str)
@@ -49,8 +49,9 @@ def master_juso_converter(keyword):
         
     kw_str = str(keyword).strip()
     
-    # 슬래시 동/호수 사전 전처리
+    # 슬래시 및 하이픈 동/호수 사전 전처리
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
+    kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
     
     # [규칙 1] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
     if '불로동' in kw_str:
@@ -74,7 +75,7 @@ def master_juso_converter(keyword):
             processed_tokens.append(t)
     kw_str = " ".join(processed_tokens)
     
-    # 2. 동/호수/층/가동/나동/A동/B동/관리실/택배보관함 등 상세 정보 자동 띄어쓰기 전처리 (버그 수정: [가-힣]+동으로 온전한 동 인식)
+    # 2. 동/호수/층/가동/나동/A동/B동/관리실/택배보관함 등 상세 정보 자동 띄어쓰기 전처리
     kw_str = re.sub(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', r' \1 ', kw_str)
     kw_str = ' '.join(kw_str.split())
     
@@ -213,7 +214,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 9. 상세 부가정보 재결합
+    # 9. 상세 부가정보 재결합 (항상 아파트명 및 주소 뒤편에 배치되도록 정돈)
     full_result = base_road_addr
     if extra_details:
         needed_details = []
@@ -221,6 +222,7 @@ def master_juso_converter(keyword):
             if p not in base_road_addr:
                 needed_details.append(p)
         if needed_details:
+            # 동/호수 데이터가 앞에 잘못 붙어있었더라도 뒤쪽으로 깔끔하게 모아줌
             full_result = f"{base_road_addr} {' '.join(needed_details)}"
 
     return remove_duplicate_words(full_result)
