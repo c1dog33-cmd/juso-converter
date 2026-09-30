@@ -15,6 +15,11 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
+# --- [ 특정 예외 주소 강제 매핑 사전 (API 누락 및 신축 변경 주소 대응) ] ---
+SPECIAL_EXCEPTIONS = {
+    "불로동 268-2": "인천광역시 검단구 금정로 12",
+}
+
 # --- [ 정제 및 텍스트 교정 함수 ] ---
 def remove_duplicate_words(addr_str):
     if not addr_str:
@@ -53,7 +58,17 @@ def master_juso_converter(keyword):
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
     kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
     
-    # [규칙 1] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
+    # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2)
+    for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
+        if target_key in kw_str:
+            # 기존 주소에서 지번과 예외 키워드를 교체하고 상세 동/호수는 보존
+            extra_part = kw_str
+            for part in target_key.split():
+                extra_part = extra_part.replace(part, '')
+            extra_part = re.sub(r'인천광역시|검단구|서구|불로동', '', extra_part).strip()
+            return remove_duplicate_words(f"{override_addr} {extra_part}")
+
+    # [규칙 2] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
     if '불로동' in kw_str:
         kw_str = kw_str.replace('서구', '검단구').replace('서해구', '검단구')
         if '인천광역시 검단구' not in kw_str and '인천 검단구' not in kw_str:
@@ -214,7 +229,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 9. 상세 부가정보 재결합 (항상 아파트명 및 주소 뒤편에 배치되도록 정돈)
+    # 9. 상세 부가정보 재결합
     full_result = base_road_addr
     if extra_details:
         needed_details = []
@@ -222,7 +237,6 @@ def master_juso_converter(keyword):
             if p not in base_road_addr:
                 needed_details.append(p)
         if needed_details:
-            # 동/호수 데이터가 앞에 잘못 붙어있었더라도 뒤쪽으로 깔끔하게 모아줌
             full_result = f"{base_road_addr} {' '.join(needed_details)}"
 
     return remove_duplicate_words(full_result)
