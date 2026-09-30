@@ -73,11 +73,11 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
-    # 1. 상세 부가정보(동, 호, 층, 관리실 등) 추출 및 원본에서 분리
-    extra_pattern = r'\b(\d+동|[가A-Za-z]동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)\b'
+    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명, 수취인 이름 등) 추출 및 원본에서 분리
+    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터)|[가-힣]{2,4}(?=\s*$))'
     extra_details = re.findall(extra_pattern, kw_str)
     
-    # 검색용 쿼리 생성 시 상세 동/호수 일시 제거
+    # 검색용 쿼리 생성 시 상세 부가정보 일시 제거
     search_q_str = re.sub(extra_pattern, '', kw_str)
     search_q_str = ' '.join(search_q_str.split())
 
@@ -196,7 +196,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 7. 최종 결과 조합
+    # 7. 최종 결과 조합: 도로명 주소 맨 뒤에 상세 부가정보(extra_details) 배치
     full_result = base_road_addr
     if extra_details:
         needed_details = [p for p in extra_details if p not in base_road_addr]
