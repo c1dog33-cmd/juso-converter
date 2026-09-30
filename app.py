@@ -43,13 +43,18 @@ def remove_duplicate_words(addr_str):
             
     return ' '.join(clean_words)
 
+# --- [ 만능 주소 변환 엔진 (심곡동 에스원홈타운 등 지번 우선 매칭 완전 보완) ] ---
 def master_juso_converter(keyword):
     if not keyword or pd.isna(keyword):
         return keyword
         
     kw_str = str(keyword).strip()
     
-    # 1. 건물명 뒤 '105-103' 형태를 '105동 103호'로 자동 변환
+    # 1. 중복 지역명 정제 (예: '인천광역시 서구 ... 인천 서구' -> 중복 제거)
+    kw_str = re.sub(r'인천광역시\s+서구(.*?)인천\s*서구', r'인천광역시 서구\1', kw_str)
+    kw_str = re.sub(r'인천광역시\s+서구(.*?)인천', r'인천광역시 서구\1', kw_str)
+    
+    # 2. 건물명 뒤 '103-401' 형태를 '103동 401호'로 자동 변환
     tokens_init = kw_str.split()
     processed_tokens = []
     for i, t in enumerate(tokens_init):
@@ -64,16 +69,16 @@ def master_juso_converter(keyword):
             processed_tokens.append(t)
     kw_str = " ".join(processed_tokens)
     
-    # 2. 동/호수/층 자동 띄어쓰기 전처리
+    # 3. 동/호수/층 자동 띄어쓰기 전처리
     kw_str = re.sub(r'(\d+동|\d+호|\d+층|B\d+호|물리치료실)', r' \1 ', kw_str)
     kw_str = ' '.join(kw_str.split())
     
-    # 3. 예외 및 특수 주소 처리
+    # 4. 특수 예외 처리
     if '월산동 986-3' in kw_str or '월산동 986' in kw_str:
         extra = kw_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 (월산동) {extra}".strip())
 
-    # 4. 동/호수 부가정보와 기본 주소 분리
+    # 5. 동/호수 부가정보와 기본 주소 분리
     tokens = kw_str.split()
     base_tokens = []
     extra_details = []
@@ -86,7 +91,7 @@ def master_juso_converter(keyword):
             
     search_q1 = " ".join(base_tokens)
     
-    # 5. 스마트 토큰 분류
+    # 6. 스마트 토큰 분리 (시도/시군구/동 + 지번 + 건물명)
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
     building_tokens = []
@@ -105,26 +110,27 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # 6. 다단계 검색 후보군 생성
+    # 7. 다단계 검색 후보군 생성 (지번 최우선)
     query_candidates = []
     
-    if search_q1:
-        query_candidates.append(search_q1)
-        
+    # (1) 순수 지번 최우선 검색 (예: 인천광역시 서구 심곡동 325-13)
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
+    # (2) 전체 키워드 검색
+    if search_q1 and search_q1 not in query_candidates:
+        query_candidates.append(search_q1)
+        
+    # (3) 행정구역 + 건물명 검색
     if sido_sigungu_dong and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
 
+    # (4) 동 제외 행정구역 + 건물명 검색
     sido_sigungu_only = " ".join([t for t in sido_sigungu_dong_tokens if not (t.endswith('동') or t.endswith('리') or t.endswith('가'))])
     if sido_sigungu_only and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_only} {building_name_candidate}")
 
-    if jibeon_token and '-' in jibeon_token:
-        main_jibeon = jibeon_token.split('-')[0]
-        query_candidates.append(f"{sido_sigungu_dong} {main_jibeon}")
-
+    # (5) 원본 입력값
     if kw_str not in query_candidates:
         query_candidates.append(kw_str)
 
@@ -146,22 +152,14 @@ def master_juso_converter(keyword):
                 if juso_list:
                     selected_juso = None
                     
+                    # 건물명 일치 검사 (상가 제외)
                     for juso in juso_list:
                         bd_name = juso.get('bdNm', '').strip()
                         if not is_user_sangga and '상가' in bd_name:
                             continue
-                        if bd_name and building_name_candidate and bd_name == building_name_candidate:
+                        if bd_name and building_name_candidate and (bd_name in building_name_candidate or building_name_candidate in bd_name):
                             selected_juso = juso
                             break
-
-                    if not selected_juso:
-                        for juso in juso_list:
-                            bd_name = juso.get('bdNm', '').strip()
-                            if not is_user_sangga and '상가' in bd_name:
-                                continue
-                            if bd_name and building_name_candidate and any(part in building_name_candidate for part in bd_name.split() if len(part) > 1):
-                                selected_juso = juso
-                                break
 
                     if not selected_juso and not is_user_sangga:
                         for juso in juso_list:
@@ -183,7 +181,7 @@ def master_juso_converter(keyword):
     if not base_road_addr:
         return remove_duplicate_words(kw_str)
 
-    # 7. 건물명 자동 보완 결합
+    # 8. 건물명 자동 보완 결합
     target_bd = api_bd_nm.strip() if api_bd_nm else building_name_candidate.strip()
     if target_bd and target_bd not in base_road_addr:
         if '(' in base_road_addr and ')' in base_road_addr:
@@ -191,7 +189,7 @@ def master_juso_converter(keyword):
         else:
             base_road_addr = f"{base_road_addr} ({target_bd})"
 
-    # 8. 동/호수 부가정보 재결합
+    # 9. 동/호수 부가정보 재결합
     full_result = base_road_addr
     if extra_details:
         needed_details = []
