@@ -43,16 +43,15 @@ def remove_duplicate_words(addr_str):
             
     return ' '.join(clean_words)
 
-# --- [ 만능 주소 변환 엔진 (심곡동 에스원홈타운 등 지번 우선 매칭 완전 보완) ] ---
+# --- [ 만능 주소 변환 엔진 (서해구 명칭 변경 대응 보완) ] ---
 def master_juso_converter(keyword):
     if not keyword or pd.isna(keyword):
         return keyword
         
     kw_str = str(keyword).strip()
     
-    # 1. 중복 지역명 정제 (예: '인천광역시 서구 ... 인천 서구' -> 중복 제거)
-    kw_str = re.sub(r'인천광역시\s+서구(.*?)인천\s*서구', r'인천광역시 서구\1', kw_str)
-    kw_str = re.sub(r'인천광역시\s+서구(.*?)인천', r'인천광역시 서구\1', kw_str)
+    # 1. 중복 지역명 및 구 명칭 정제
+    kw_str = re.sub(r'인천광역시\s+(서구|서해구)(.*?)인천\s*(서구|서해구)', r'인천광역시 서해구\2', kw_str)
     
     # 2. 건물명 뒤 '103-401' 형태를 '103동 401호'로 자동 변환
     tokens_init = kw_str.split()
@@ -110,27 +109,35 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # 7. 다단계 검색 후보군 생성 (지번 최우선)
+    # 7. 다단계 검색 후보군 생성 (서해구 보완 후보 추가)
     query_candidates = []
     
-    # (1) 순수 지번 최우선 검색 (예: 인천광역시 서구 심곡동 325-13)
+    # (1) 순수 지번 최우선 검색
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
-    # (2) 전체 키워드 검색
+    # (2) '서구' -> '서해구' 변환 검색어 추가
+    if '서구' in sido_sigungu_dong:
+        seohae_dong = sido_sigungu_dong.replace('서구', '서해구')
+        if jibeon_token:
+            query_candidates.append(f"{seohae_dong} {jibeon_token}")
+        if building_name_candidate:
+            query_candidates.append(f"{seohae_dong} {building_name_candidate}")
+
+    # (3) 전체 키워드 검색
     if search_q1 and search_q1 not in query_candidates:
         query_candidates.append(search_q1)
         
-    # (3) 행정구역 + 건물명 검색
+    # (4) 행정구역 + 건물명 검색
     if sido_sigungu_dong and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
 
-    # (4) 동 제외 행정구역 + 건물명 검색
+    # (5) 동 제외 행정구역 + 건물명 검색
     sido_sigungu_only = " ".join([t for t in sido_sigungu_dong_tokens if not (t.endswith('동') or t.endswith('리') or t.endswith('가'))])
     if sido_sigungu_only and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_only} {building_name_candidate}")
 
-    # (5) 원본 입력값
+    # (6) 원본 입력값
     if kw_str not in query_candidates:
         query_candidates.append(kw_str)
 
@@ -152,7 +159,6 @@ def master_juso_converter(keyword):
                 if juso_list:
                     selected_juso = None
                     
-                    # 건물명 일치 검사 (상가 제외)
                     for juso in juso_list:
                         bd_name = juso.get('bdNm', '').strip()
                         if not is_user_sangga and '상가' in bd_name:
