@@ -51,16 +51,6 @@ def master_juso_converter(keyword):
         
     kw_str = str(keyword).strip()
     
-    # [추가] 두 개의 주소가 연속으로 붙어있는 경우 첫 번째 주소와 뒤의 부가정보만 남기고 중간 주소 제거
-    dual_addr_pattern = re.compile(
-        r'^(.+?\d+(?:-\d+)?)\s+'
-        r'(?:서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도|강원도|강원특별자치도|충청북도|충청남도|전라북도|전북특별자치도|전라남도|경상북도|경상남도|제주특별자치도|제주도|서울|경기|인천|부산|대구|광주|대전|울산|세종|강원|충북|충남|전북|전남|경북|경남|제주)'
-        r'.+?\d+(?:-\d+)?\s+(.*)$'
-    )
-    match = dual_addr_pattern.match(kw_str)
-    if match:
-        kw_str = f"{match.group(1)} {match.group(2)}"
-
     # 0. 행정구역 및 슬래시/하이픈 사전 전처리
     kw_str = re.sub(r'남동\s+구', '남동구', kw_str)
     kw_str = re.sub(r'서\s+구', '서구', kw_str)
@@ -83,8 +73,8 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
-    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명, 수취인 이름, 회사명 등) 추출 및 원본에서 분리
-    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터|주식회사|전자|전기|상사|유통|기업|산업|엘에이치)?|[가-힣]{2,4}(?=\s*$))'
+    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명, 수취인 이름 등) 추출 및 원본에서 분리
+    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터)|[가-힣]{2,4}(?=\s*$))'
     extra_details = re.findall(extra_pattern, kw_str)
     
     # 검색용 쿼리 생성 시 상세 부가정보 일시 제거
@@ -219,6 +209,7 @@ def master_juso_converter(keyword):
             if p_clean and (p_clean in base_clean or p_norm in base_norm):
                 continue
 
+            # API 결과에 이미 포함된 아파트/건물명과 중복되는 괄호 항목 필터링
             is_redundant_building_paren = False
             if p.startswith('(') and p.endswith(')'):
                 inner = p[1:-1]
