@@ -31,12 +31,14 @@ def remove_duplicate_words(addr_str):
     addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
     addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
 
-    # 슬래시 및 하이픈 동/호수 교정
+    # 슬래시 동/호수 교정
     addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
-    addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
-
-    # 알파벳/한글 동 뒤에 숫자가 붙고 '호'가 없는 경우 (예: A동202 -> A동 202호)
-    addr_str = re.sub(r'([A-Za-z가-힣]+동)\s*(\d+)(?!\s*호)', r'\1 \2호', addr_str)
+    
+    # 지번(예: 590-4)은 유지하면서, 건물명 뒤의 하이픈 호수 패턴만 정확히 교정
+    # (지번 영역과 동/호수 영역이 꼬이지 않도록 수정)
+    
+    # 알파벳/한글 동 뒤에 숫자가 붙고 '호'가 없는 경우 (예: A동202 -> A동 202호, 20호2호 중복 방지)
+    addr_str = re.sub(r'([A-Za-z가-힣]+\d*동)\s*(\d+)(?!\s*호)', r'\1 \2호', addr_str)
 
     words = addr_str.split()
     clean_words = []
@@ -54,12 +56,11 @@ def master_juso_converter(keyword):
         
     kw_str = str(keyword).strip()
     
-    # 0. 행정구역 및 슬래시/하이픈 사전 전처리
+    # 0. 행정구역 및 슬래시 사전 전처리
     kw_str = re.sub(r'남동\s+구', '남동구', kw_str)
     kw_str = re.sub(r'서\s+구', '서구', kw_str)
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
-    kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
-    kw_str = re.sub(r'([A-Za-z가-힣]+동)\s*(\d+)(?!\s*호)', r'\1 \2호', kw_str)
+    kw_str = re.sub(r'([A-Za-z가-힣]+\d*동)\s*(\d+)(?!\s*호)', r'\1 \2호', kw_str)
     
     # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2)
     for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
@@ -78,7 +79,6 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
     # 1. 상세 부가정보(동, 호, 층, 관리실, 병원명/상호명 등) 추출 및 원본에서 분리
-    # 지번 이후에 나오는 상세 호수 및 상호명(예: 역삼이창훈이비인후과)까지 안전하게 추출
     tokens = kw_str.split()
     base_tokens = []
     extra_details = []
