@@ -25,18 +25,15 @@ def remove_duplicate_words(addr_str):
     if not addr_str:
         return addr_str
     
-    # 슬래시 동/호수 최우선 변환 (예: 208/1804 -> 208동 1804호)
-    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
-    
-    # 하이픈 형태 동/호수 교정 (예: 104- 1503호 또는 104-1503 -> 104동 1503호)
-    addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
-
-    # 법정동 띄어쓰기 및 글자 잘림 방지 교정
+    # 행정구역 띄어쓰기 교정 (예: 남동 구 -> 남동구, 서 구 -> 서구)
+    addr_str = re.sub(r'남동\s+구', '남동구', addr_str)
+    addr_str = re.sub(r'서\s+구', '서구', addr_str)
     addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
     addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
 
-    # 알파벳/한글 동 뒤에 숫자가 바로 붙은 경우 (예: A동202 -> A동 202호)
-    addr_str = re.sub(r'([A-Za-z가-힣]+동)(\d+)(?!\s*호)', r'\1 \2호', addr_str)
+    # 슬래시 및 하이픈 동/호수 교정
+    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
+    addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
 
     words = addr_str.split()
     clean_words = []
@@ -54,7 +51,9 @@ def master_juso_converter(keyword):
         
     kw_str = str(keyword).strip()
     
-    # 슬래시 및 하이픈 동/호수 사전 전처리
+    # 0. 행정구역 및 슬래시/하이픈 사전 전처리
+    kw_str = re.sub(r'남동\s+구', '남동구', kw_str)
+    kw_str = re.sub(r'서\s+구', '서구', kw_str)
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
     kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
     
@@ -74,8 +73,17 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
-    # 1. 건물명 뒤 '103-401' 형태를 '103동 104호'로 자동 변환
-    tokens_init = kw_str.split()
+    # 1. 상세 부가정보(동, 호, 층, 관리실 등) 추출 및 원본에서 분리
+    # 법정동('간석동', '남동구' 등)과 혼동되지 않도록 아파트 전용 동/호수 패턴 사용
+    extra_pattern = r'\b(\d+동|[가A-Za-z]동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)\b'
+    extra_details = re.findall(extra_pattern, kw_str)
+    
+    # 검색용 쿼리 생성 시 상세 동/호수 일시 제거
+    search_q_str = re.sub(extra_pattern, '', kw_str)
+    search_q_str = ' '.join(search_q_str.split())
+
+    # 2. 건물명 뒤 '103-401' 형태를 '103동 104호'로 자동 변환
+    tokens_init = search_q_str.split()
     processed_tokens = []
     for i, t in enumerate(tokens_init):
         if re.match(r'^\d+-\d+$', t):
@@ -87,40 +95,15 @@ def master_juso_converter(keyword):
                 processed_tokens.append(t)
         else:
             processed_tokens.append(t)
-    kw_str = " ".join(processed_tokens)
-    
-    # 2. 동/호수/층/가동/나동/A동/B동/관리실/택배보관함 등 상세 정보 자동 띄어쓰기 전처리
-    kw_str = re.sub(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', r' \1 ', kw_str)
-    kw_str = ' '.join(kw_str.split())
+    search_q_str = " ".join(processed_tokens)
     
     # 3. 특수 예외 처리 (월산동 등)
-    if '월산동 986-3' in kw_str or '월산동 986' in kw_str:
-        extra = kw_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
-        return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra}".strip())
+    if '월산동 986-3' in search_q_str or '월산동 986' in search_q_str:
+        extra = search_q_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
+        return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra} {' '.join(extra_details)}".strip())
 
-    # 4. 상세 부가정보와 기본 주소 분리
-    tokens = kw_str.split()
-    base_tokens = []
-    extra_details = []
-    
-    is_after_jibeon = False
-    for t in tokens:
-        if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
-            is_after_jibeon = True
-            base_tokens.append(t)
-        elif is_after_jibeon and re.search(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실)', t):
-            extra_details.append(t)
-        elif not is_after_jibeon and re.search(r'(\d+동|[가-힣]+동|\d+호|\d+층|B\d+호)', t):
-            extra_details.append(t)
-        else:
-            if is_after_jibeon and not any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']):
-                extra_details.append(t)
-            else:
-                base_tokens.append(t)
-            
-    search_q1 = " ".join(base_tokens)
-    
-    # 5. 스마트 토큰 분리 ('시흥동' 등 온전한 동 이름 보존)
+    # 4. 스마트 토큰 분리
+    base_tokens = search_q_str.split()
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
     building_tokens = []
@@ -139,16 +122,16 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # 6. 다단계 검색 후보군 생성
+    # 5. 다단계 검색 후보군 생성
     query_candidates = []
     
-    if '불로동' in kw_str:
+    if '불로동' in search_q_str:
         if sido_sigungu_dong and jibeon_token:
             query_candidates.append(f"인천광역시 검단구 불로동 {jibeon_token}")
-        query_candidates.append(kw_str.replace('서구', '검단구').replace('서해구', '검단구'))
+        query_candidates.append(search_q_str.replace('서구', '검단구').replace('서해구', '검단구'))
 
-    elif '서구' in kw_str:
-        seohae_q = kw_str.replace('서구', '서해구')
+    elif '서구' in search_q_str:
+        seohae_q = search_q_str.replace('서구', '서해구')
         if sido_sigungu_dong and jibeon_token:
             seohae_dong = sido_sigungu_dong.replace('서구', '서해구')
             query_candidates.append(f"{seohae_dong} {jibeon_token}")
@@ -157,14 +140,11 @@ def master_juso_converter(keyword):
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
-    if search_q1 and search_q1 not in query_candidates:
-        query_candidates.append(search_q1)
+    if search_q_str not in query_candidates:
+        query_candidates.append(search_q_str)
         
     if sido_sigungu_dong and building_name_candidate:
         query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
-
-    if kw_str not in query_candidates:
-        query_candidates.append(kw_str)
 
     base_road_addr = ""
     api_bd_nm = ""
@@ -212,16 +192,16 @@ def master_juso_converter(keyword):
     if not base_road_addr:
         return remove_duplicate_words(kw_str)
 
-    # 7. API 결과 주소의 괄호 포맷 유지 (법정동 및 아파트명 괄호 보존)
-    # 기존 코드의 괄호 제거 로직을 제거하여 (간석동, 간석LH2단지아파트) 형태를 그대로 유지합니다.
+    # 6. 아파트/건물명 보완 결합
+    target_bd = api_bd_nm.strip() if api_bd_nm else building_name_candidate.strip()
+    if target_bd and target_bd not in base_road_addr:
+        base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 8. 상세 부가정보 재결합 (항상 괄호 포맷 뒤편 최하단에 배치)
+    # 7. 최종 결과 조합: 도로명 주소(아파트 괄호 포함) 맨 뒤에 상세 동/호수(extra_details) 배치
     full_result = base_road_addr
     if extra_details:
-        needed_details = []
-        for p in extra_details:
-            if p not in base_road_addr:
-                needed_details.append(p)
+        # 중복 방지하며 상세 정보 결합
+        needed_details = [p for p in extra_details if p not in base_road_addr]
         if needed_details:
             full_result = f"{base_road_addr} {' '.join(needed_details)}"
 
