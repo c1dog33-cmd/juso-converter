@@ -34,6 +34,20 @@ def remove_duplicate_words(addr_str):
     # 슬래시 및 하이픈 동/호수 교정
     addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
     addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
+    
+    # 동/호 띄어쓰기 교정 (예: 111 동 1404 -> 111동 1404, 111 동 -> 111동)
+    addr_str = re.sub(r'\b(\d+)\s+동\s*(\d+)\b', r'\1동 \2', addr_str)
+    addr_str = re.sub(r'\b(\d+)\s+동\b', r'\1동', addr_str)
+    addr_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', addr_str)
+    
+    # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
+    addr_str = re.sub(r'동(\d)', r'동 \1', addr_str)
+
+    # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
+    addr_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', addr_str)
+
+    # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
+    addr_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', addr_str)
 
     words = addr_str.split()
     clean_words = []
@@ -51,11 +65,25 @@ def master_juso_converter(keyword):
         
     kw_str = str(keyword).strip()
     
-    # 0. 행정구역 및 슬래시/하이픈 사전 전처리
+    # 0. 행정구역 및 슬래시/하이픈, 동/호수 띄어쓰기 사전 전처리
     kw_str = re.sub(r'남동\s+구', '남동구', kw_str)
     kw_str = re.sub(r'서\s+구', '서구', kw_str)
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
     kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
+    
+    # 동/호 띄어쓰기 교정 (예: 111 동 1404 -> 111동 1404, 111 동 -> 111동)
+    kw_str = re.sub(r'\b(\d+)\s+동\s*(\d+)\b', r'\1동 \2', kw_str)
+    kw_str = re.sub(r'\b(\d+)\s+동\b', r'\1동', kw_str)
+    kw_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', kw_str)
+    
+    # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
+    kw_str = re.sub(r'동(\d)', r'동 \1', kw_str)
+
+    # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
+    kw_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', kw_str)
+
+    # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
+    kw_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', kw_str)
     
     # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2)
     for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
@@ -73,8 +101,8 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
-    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명, 수취인 이름 등) 추출 및 원본에서 분리
-    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터)|[가-힣]{2,4}(?=\s*$))'
+    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명 등) 추출 및 원본에서 분리
+    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터))'
     extra_details = re.findall(extra_pattern, kw_str)
     
     # 검색용 쿼리 생성 시 상세 부가정보 일시 제거
@@ -101,7 +129,7 @@ def master_juso_converter(keyword):
         extra = search_q_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra} {' '.join(extra_details)}".strip())
 
-    # 4. 스마트 토큰 분리
+    # 4. 스마트 토큰 분리 (읍, 면 단위를 주소 구역으로 올바르게 인식하도록 추가)
     base_tokens = search_q_str.split()
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
@@ -110,7 +138,7 @@ def master_juso_converter(keyword):
     for t in base_tokens:
         if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
             jibeon_token = t
-        elif any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']) and t != '시':
+        elif any(t.endswith(s) for s in ['도', '시', '구', '군', '읍', '면', '동', '리', '가', '로', '길']) and t != '시':
             if not jibeon_token:
                 sido_sigungu_dong_tokens.append(t)
             else:
