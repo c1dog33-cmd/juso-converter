@@ -15,11 +15,24 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
-# --- [ 중복 단어 및 괄호 정제 함수 ] ---
+# --- [ 중복 단어 및 상세 주소 정제 함수 ] ---
 def remove_duplicate_words(addr_str):
     if not addr_str:
         return addr_str
     
+    # 법정동 띄어쓰기 오류 교정 (예: 간 석동 -> 간석동, 가 능동 -> 가능동)
+    addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
+    addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
+    
+    # 슬래시 형태 동/호수 교정 (예: 208/1804 -> 208동 1804호)
+    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
+    
+    # 하이픈 형태 동/호수 교정 (예: 104-1503 -> 104동 1503호)
+    addr_str = re.sub(r'\b(\d{1,4})-(\d{3,4})호?\b', r'\1동 \2호', addr_str)
+
+    # 알파벳/한글 동 뒤에 숫자가 바로 붙은 경우 (예: A동202 -> A동 202호)
+    addr_str = re.sub(r'([A-Za-z가-힣]동)(\d+)(?!\s*호)', r'\1 \2호', addr_str)
+
     words = addr_str.split()
     clean_words = []
     for w in words:
@@ -68,7 +81,6 @@ def master_juso_converter(keyword):
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra}".strip())
 
     # 4. 상세 부가정보(동, 호, 층, 가동, A동, 관리실, 택배보관함, 상호명 등)와 기본 주소 분리
-    # 지번이나 도로명 주소 구성 요소가 아닌 뒷주소(상호명, 관리실 등)까지 모두 보존하기 위해 패턴 확장
     tokens = kw_str.split()
     base_tokens = []
     extra_details = []
@@ -84,7 +96,6 @@ def master_juso_converter(keyword):
             extra_details.append(t)
         else:
             if is_after_jibeon and not any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']):
-                # 지번 뒤에 나오는 추가 건물명이나 상호명/부서명 등은 상세 정보로 안전하게 보관
                 extra_details.append(t)
             else:
                 base_tokens.append(t)
@@ -199,7 +210,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # 9. 상세 부가정보(동, 호, 가동, 관리실, 택배보관함, 상호명 등) 재결합
+    # 9. 상세 부가정보 재결합
     full_result = base_road_addr
     if extra_details:
         needed_details = []
