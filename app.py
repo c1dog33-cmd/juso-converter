@@ -15,17 +15,17 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
-# --- [ 중복 단어 및 상세 주소 정제 함수 ] ---
+# --- [ 정제 및 텍스트 교정 함수 ] ---
 def remove_duplicate_words(addr_str):
     if not addr_str:
         return addr_str
     
-    # 법정동 띄어쓰기 오류 교정 (예: 간 석동 -> 간석동, 가 능동 -> 가능동)
+    # 0. 슬래시 동/호수 최우선 변환 (예: 208/1804 -> 208동 1804호)
+    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
+    
+    # 법정동 띄어쓰기 및 글자 잘림 방지 교정
     addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
     addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
-    
-    # 슬래시 형태 동/호수 교정 (예: 208/1804 -> 208동 1804호)
-    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
     
     # 하이픈 형태 동/호수 교정 (예: 104-1503 -> 104동 1503호)
     addr_str = re.sub(r'\b(\d{1,4})-(\d{3,4})호?\b', r'\1동 \2호', addr_str)
@@ -48,6 +48,9 @@ def master_juso_converter(keyword):
         return keyword
         
     kw_str = str(keyword).strip()
+    
+    # 슬래시 동/호수 사전 전처리
+    kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
     
     # [규칙 1] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
     if '불로동' in kw_str:
@@ -80,7 +83,7 @@ def master_juso_converter(keyword):
         extra = kw_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra}".strip())
 
-    # 4. 상세 부가정보(동, 호, 층, 가동, A동, 관리실, 택배보관함, 상호명 등)와 기본 주소 분리
+    # 4. 상세 부가정보와 기본 주소 분리
     tokens = kw_str.split()
     base_tokens = []
     extra_details = []
@@ -102,7 +105,7 @@ def master_juso_converter(keyword):
             
     search_q1 = " ".join(base_tokens)
     
-    # 5. 스마트 토큰 분리
+    # 5. 스마트 토큰 분리 ('시흥동' 등 온전한 동 이름 보존)
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
     building_tokens = []
@@ -110,7 +113,7 @@ def master_juso_converter(keyword):
     for t in base_tokens:
         if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
             jibeon_token = t
-        elif any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']):
+        elif any(t.endswith(s) for s in ['도', '시', '구', '군', '동', '리', '가', '로', '길']) and t != '시':
             if not jibeon_token:
                 sido_sigungu_dong_tokens.append(t)
             else:
