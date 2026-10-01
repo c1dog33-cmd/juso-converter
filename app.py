@@ -16,6 +16,13 @@ def fix_zipcode(val):
     val_str = str(val).split('.')[0].strip()
     return val_str.zfill(5) if val_str else ""
 
+# --- [ 특정 예외 주소 강제 매핑 사전 ] ---
+SPECIAL_EXCEPTIONS = {
+    "불로동 268-2": "인천광역시 검단구 금정로 12",
+    "신검단중앙역풍경채어바니티2차": "인천광역시 검단구 고산후로 305",
+    "소석리 626": "충청북도 음성군 대소읍 대금로 686-1",
+}
+
 # --- [ 정제 및 텍스트 교정 함수 ] ---
 def remove_duplicate_words(addr_str):
     if not addr_str:
@@ -54,7 +61,7 @@ def remove_duplicate_words(addr_str):
             
     return ' '.join(clean_words)
 
-# --- [ 만능 주소 변환 엔진 (근본 해결 로직 적용) ] ---
+# --- [ 만능 주소 변환 엔진 ] ---
 def master_juso_converter(keyword):
     if not keyword or pd.isna(keyword):
         return keyword
@@ -67,20 +74,41 @@ def master_juso_converter(keyword):
     kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
     kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
     
+    # 동/호 띄어쓰기 교정 (예: 111 동 1404 -> 111동 1404, 111 동 -> 111동)
     kw_str = re.sub(r'\b(\d+)\s+동\s*(\d+)\b', r'\1동 \2', kw_str)
     kw_str = re.sub(r'\b(\d+)\s+동\b', r'\1동', kw_str)
     kw_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', kw_str)
+    
+    # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
     kw_str = re.sub(r'동(\d)', r'동 \1', kw_str)
+
+    # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
     kw_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', kw_str)
+
+    # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
     kw_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', kw_str)
     
-    # 행정구역 개편 보정 (인천 불로동 -> 검단구, 영종구 운서동 등 -> 영종구)
+    # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2, 소석리 626 등)
+    for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
+        if target_key in kw_str:
+            extra_part = kw_str
+            for part in target_key.split():
+                extra_part = extra_part.replace(part, '')
+            if "소석리 626" in target_key:
+                extra_part = re.sub(r'충청북도|음성군|대소면|소석리|이안음성대소아파트|\b0\b', '', extra_part).strip()
+                return remove_duplicate_words(f"{override_addr} (이안음성대소아파트) {extra_part}")
+            else:
+                extra_part = re.sub(r'인천광역시|검단구|서구|불로동|영종구|\b0\b', '', extra_part).strip()
+                return remove_duplicate_words(f"{override_addr} {target_key} {extra_part}")
+
+    # [규칙 2] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
     if '불로동' in kw_str:
         kw_str = kw_str.replace('서구', '검단구').replace('서해구', '검단구')
         if '인천광역시 검단구' not in kw_str and '인천 검단구' not in kw_str:
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
+    # [규칙 3] 인천 중구 운서동(영종구 지역) -> 영종구 운서동 강제 매핑
     if '운서동' in kw_str or any(d in kw_str for d in ['중산동', '운남동', '운북동']):
         kw_str = kw_str.replace('중구', '영종구')
         if '인천광역시 영종구' not in kw_str and '인천 영종구' not in kw_str:
@@ -91,11 +119,9 @@ def master_juso_converter(keyword):
     extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터))'
     extra_details = re.findall(extra_pattern, kw_str)
     
+    # 검색용 쿼리 생성 시 상세 부가정보 일시 제거
     search_q_str = re.sub(extra_pattern, '', kw_str)
     search_q_str = ' '.join(search_q_str.split())
-
-    # 건물명 띄어쓰기 타이포 정규화 (예: 중앙빌 라동 -> 중앙빌라)
-    search_q_str = re.sub(r'중앙빌\s+라동', '중앙빌라', search_q_str)
 
     # 2. 건물명 뒤 '103-401' 형태를 '103동 104호'로 자동 변환
     tokens_init = search_q_str.split()
@@ -117,15 +143,14 @@ def master_juso_converter(keyword):
         extra = search_q_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
         return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra} {' '.join(extra_details)}".strip())
 
-    # 4. 토큰 스마트 분리 (시도, 시군구, 읍면동리, 지번, 건물명 분리)
+    # 4. 스마트 토큰 분리 (읍, 면 단위를 주소 구역으로 올바르게 인식하도록 추가)
     base_tokens = search_q_str.split()
     sido_sigungu_dong_tokens = []
     jibeon_token = ""
     building_tokens = []
     
     for t in base_tokens:
-        # 무효 지번('0')은 지번으로 취급하지 않음
-        if (re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t)) and t != '0':
+        if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
             jibeon_token = t
         elif any(t.endswith(s) for s in ['도', '시', '구', '군', '읍', '면', '동', '리', '가', '로', '길']) and t != '시':
             if not jibeon_token:
@@ -137,51 +162,38 @@ def master_juso_converter(keyword):
 
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
+    
+    # 사용자가 입력한 맨 끝 상호명/가게이름 백업
     original_building_candidate = building_name_candidate.strip()
 
-    # 5. 지능형 다단계 검색 후보군 생성 (★ 핵심 개선)
+    # 5. 다단계 검색 후보군 생성
     query_candidates = []
     
-    # [우선순위 1] 아파트/건물명이 있는 경우: 지번보다 '지역명 + 건물명'을 먼저 검색하여 지번 에러 원천 차단
-    if building_name_candidate:
-        # '리' 단위(예: 소석리)가 포함된 경우 '리'를 제외한 시도+시군구+읍면+건물명 조합 우선 추가
-        clean_region_tokens = [t for t in sido_sigungu_dong_tokens if not t.endswith('리')]
-        clean_region = " ".join(clean_region_tokens)
-        if clean_region:
-            query_candidates.append(f"{clean_region} {building_name_candidate}")
-        if sido_sigungu_dong:
-            query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
-
-    # [우선순위 2] 유효한 지번 기반 검색 ('0'이 아닐 때만)
-    if sido_sigungu_dong and jibeon_token and jibeon_token != '0':
-        query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
-
-    # [우선순위 3] 원본 검색 쿼리 및 지역별 변형 쿼리
     if '불로동' in search_q_str:
-        if sido_sigungu_dong and jibeon_token and jibeon_token != '0':
+        if sido_sigungu_dong and jibeon_token:
             query_candidates.append(f"인천광역시 검단구 불로동 {jibeon_token}")
         query_candidates.append(search_q_str.replace('서구', '검단구').replace('서해구', '검단구'))
 
     elif '서구' in search_q_str:
         seohae_q = search_q_str.replace('서구', '서해구')
-        if sido_sigungu_dong and jibeon_token and jibeon_token != '0':
+        if sido_sigungu_dong and jibeon_token:
             seohae_dong = sido_sigungu_dong.replace('서구', '서해구')
             query_candidates.append(f"{seohae_dong} {jibeon_token}")
         query_candidates.append(seohae_q)
 
     if '운서동' in search_q_str:
-        if sido_sigungu_dong and jibeon_token and jibeon_token != '0':
+        if sido_sigungu_dong and jibeon_token:
             query_candidates.append(f"인천광역시 영종구 운서동 {jibeon_token}")
         query_candidates.append(search_q_str.replace('중구', '영종구'))
 
+    if sido_sigungu_dong and jibeon_token:
+        query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
+        
     if search_q_str not in query_candidates:
         query_candidates.append(search_q_str)
         
-    # 지번이 없거나 '0'인 경우 동/리를 제외한 상위 지역명 + 건물명 조합 추가
-    if (not jibeon_token or jibeon_token == '0') and building_name_candidate:
-        region_only = " ".join([t for t in sido_sigungu_dong_tokens if not t.endswith(('동', '리'))])
-        if region_only:
-            query_candidates.append(f"{region_only} {building_name_candidate}")
+    if sido_sigungu_dong and building_name_candidate:
+        query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
 
     base_road_addr = ""
     api_bd_nm = ""
@@ -238,6 +250,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
+    # 사용자가 입력했던 원래 상호명/메모가 결과에 없다면 맨 끝에 확실하게 부착
     if original_building_candidate and original_building_candidate != api_bd_nm and original_building_candidate not in base_road_addr:
         base_road_addr = f"{base_road_addr} {original_building_candidate}"
 
