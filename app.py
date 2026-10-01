@@ -102,6 +102,13 @@ def master_juso_converter(keyword):
             kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
             kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
 
+    # [규칙 3] 인천 중구 운서동(영종구 지역) -> 영종구 운서동 강제 매핑
+    if '운서동' in kw_str or any(d in kw_str for d in ['중산동', '운남동', '운북동']):
+        kw_str = kw_str.replace('중구', '영종구')
+        if '인천광역시 영종구' not in kw_str and '인천 영종구' not in kw_str:
+            kw_str = re.sub(r'인천광역시\s+중구', '인천광역시 영종구', kw_str)
+            kw_str = re.sub(r'인천\s+중구', '인천 영종구', kw_str)
+
     # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명 등) 추출 및 원본에서 분리
     extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터))'
     extra_details = re.findall(extra_pattern, kw_str)
@@ -168,6 +175,11 @@ def master_juso_converter(keyword):
             query_candidates.append(f"{seohae_dong} {jibeon_token}")
         query_candidates.append(seohae_q)
 
+    if '운서동' in search_q_str:
+        if sido_sigungu_dong and jibeon_token:
+            query_candidates.append(f"인천광역시 영종구 운서동 {jibeon_token}")
+        query_candidates.append(search_q_str.replace('중구', '영종구'))
+
     if sido_sigungu_dong and jibeon_token:
         query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
         
@@ -222,6 +234,10 @@ def master_juso_converter(keyword):
 
     if not base_road_addr:
         return remove_duplicate_words(kw_str)
+
+    # 운서동 등 영종구 지역인 경우 API 결과 내 중구를 영종구로 보정
+    if '운서동' in base_road_addr or '운서동' in kw_str or any(d in kw_str for d in ['중산동', '운남동', '운북동']):
+        base_road_addr = base_road_addr.replace('인천광역시 중구', '인천광역시 영종구').replace('인천 중구', '인천 영종구')
 
     # 6. 아파트/건물명 보완 결합
     target_bd = api_bd_nm.strip() if api_bd_nm else original_building_candidate
