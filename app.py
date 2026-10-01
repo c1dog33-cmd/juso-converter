@@ -19,6 +19,7 @@ def fix_zipcode(val):
 # --- [ 특정 예외 주소 강제 매핑 사전 ] ---
 SPECIAL_EXCEPTIONS = {
     "불로동 268-2": "인천광역시 검단구 금정로 12",
+    "신검단중앙역풍경채어바니티2차": "인천광역시 검단구 고산후로 305",
 }
 
 # --- [ 정제 및 텍스트 교정 함수 ] ---
@@ -86,14 +87,14 @@ def master_juso_converter(keyword):
     # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
     kw_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', kw_str)
     
-    # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2)
+    # [규칙 1] 특정 예외 매핑 체크 (예: 불로동 268-2, 신검단중앙역풍경채어바니티2차 등)
     for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
         if target_key in kw_str:
             extra_part = kw_str
             for part in target_key.split():
                 extra_part = extra_part.replace(part, '')
-            extra_part = re.sub(r'인천광역시|검단구|서구|불로동', '', extra_part).strip()
-            return remove_duplicate_words(f"{override_addr} {extra_part}")
+            extra_part = re.sub(r'인천광역시|검단구|서구|불로동|영종구|\b0\b', '', extra_part).strip()
+            return remove_duplicate_words(f"{override_addr} {target_key} {extra_part}")
 
     # [규칙 2] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
     if '불로동' in kw_str:
