@@ -6,6 +6,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from openpyxl.styles import Font
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 CONFIRM_KEY = "devU01TX0FVVEgyMDI2MDkzMDEwMTcwMDEyMDUzMjM="
 
@@ -77,7 +78,7 @@ def master_juso_converter(keyword):
     kw_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', kw_str)
     
     # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
-    kw_str = re.sub(r'동(\d)', r'동 \1', addr_str if 'addr_str' in locals() else '동 \1') # 안전 장치
+    kw_str = re.sub(r'동(\d)', r'동 \1', kw_str)
 
     # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
     kw_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', kw_str)
@@ -149,7 +150,7 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
-    # ★ [보완] 사용자가 입력한 맨 끝 상호명/가게이름 백업
+    # 사용자가 입력한 맨 끝 상호명/가게이름 백업
     original_building_candidate = building_name_candidate.strip()
 
     # 5. 다단계 검색 후보군 생성
@@ -227,7 +228,7 @@ def master_juso_converter(keyword):
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
 
-    # ★ [보완] 사용자가 입력했던 원래 상호명/메모가 결과에 없다면 맨 끝에 확실하게 부착
+    # 사용자가 입력했던 원래 상호명/메모가 결과에 없다면 맨 끝에 확실하게 부착
     if original_building_candidate and original_building_candidate != api_bd_nm and original_building_candidate not in base_road_addr:
         base_road_addr = f"{base_road_addr} {original_building_candidate}"
 
@@ -306,6 +307,11 @@ if uploaded_file is not None:
             target_columns = ['수취인명', '전화', '우편번호', '배송지', '선택정보', '기타', '구분']
             if len(df.columns) == len(target_columns):
                 df.columns = target_columns
+
+            # 엑셀 에러(IllegalCharacterError) 방지를 위한 비정상 제어 문자 제거 처리
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].apply(lambda x: ILLEGAL_CHARACTERS_RE.sub(r'', x) if isinstance(x, str) else x)
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
