@@ -77,7 +77,7 @@ def master_juso_converter(keyword):
     kw_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', kw_str)
     
     # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
-    kw_str = re.sub(r'동(\d)', r'동 \1', kw_str)
+    kw_str = re.sub(r'동(\d)', r'동 \1', addr_str if 'addr_str' in locals() else '동 \1') # 안전 장치
 
     # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
     kw_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', kw_str)
@@ -149,6 +149,9 @@ def master_juso_converter(keyword):
     sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
     building_name_candidate = " ".join(building_tokens)
     
+    # ★ [보완] 사용자가 입력한 맨 끝 상호명/가게이름 백업
+    original_building_candidate = building_name_candidate.strip()
+
     # 5. 다단계 검색 후보군 생성
     query_candidates = []
     
@@ -220,9 +223,13 @@ def master_juso_converter(keyword):
         return remove_duplicate_words(kw_str)
 
     # 6. 아파트/건물명 보완 결합
-    target_bd = api_bd_nm.strip() if api_bd_nm else building_name_candidate.strip()
+    target_bd = api_bd_nm.strip() if api_bd_nm else original_building_candidate
     if target_bd and target_bd not in base_road_addr:
         base_road_addr = f"{base_road_addr} {target_bd}"
+
+    # ★ [보완] 사용자가 입력했던 원래 상호명/메모가 결과에 없다면 맨 끝에 확실하게 부착
+    if original_building_candidate and original_building_candidate != api_bd_nm and original_building_candidate not in base_road_addr:
+        base_road_addr = f"{base_road_addr} {original_building_candidate}"
 
     # 7. 최종 결과 조합: 도로명 주소 맨 뒤에 중복되지 않는 상세 부가정보(extra_details) 배치
     full_result = base_road_addr
@@ -237,7 +244,6 @@ def master_juso_converter(keyword):
             if p_clean and (p_clean in base_clean or p_norm in base_norm):
                 continue
 
-            # API 결과에 이미 포함된 아파트/건물명과 중복되는 괄호 항목 필터링
             is_redundant_building_paren = False
             if p.startswith('(') and p.endswith(')'):
                 inner = p[1:-1]
