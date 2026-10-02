@@ -1,367 +1,143 @@
+import streamlit as st
+import pandas as pd
+import openpyxl
 import io
 import re
-import urllib.parse
-import openpyxl
-import pandas as pd
-import requests
-import streamlit as st
-from openpyxl.styles import Font
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
-CONFIRM_KEY = "devU01TX0FVVEgyMDI2MDkzMDEwMTcwMDEyMDUzMjM="
+st.set_page_config(page_title="사무실 통합 재고 및 매출 정산 시스템", layout="wide")
 
-def fix_zipcode(val):
-    if pd.isna(val) or val is None:
-        return ""
-    val_str = str(val).split('.')[0].strip()
-    return val_str.zfill(5) if val_str else ""
+st.title("🏢 사무실 통합 재고 및 매출 정산 대시보드")
+st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 폰트·서식이 깔끔하게 정돈된 최종 엑셀 파일을 다운로드하실 수 있습니다.")
 
-# --- [ 특정 예외 주소 강제 매핑 사전 ] ---
-SPECIAL_EXCEPTIONS = {
-    "불로동 268-2": "인천광역시 검단구 금정로 12",
-    "신검단중앙역풍경채어바니티2차": "인천광역시 검단구 고산후로 305",
-    "소석리 626": "충청북도 음성군 대소읍 대금로 686-1",
-    "봉평동 148-1": "경상남도 통영시 해평2길 7",
-}
+# 1. 파일 업로드 섹션
+st.subheader("1. 파일 업로드")
+col1, col2 = st.columns(2)
 
-# --- [ 정제 및 텍스트 교정 함수 ] ---
-def remove_duplicate_words(addr_str):
-    if not addr_str:
-        return addr_str
-    
-    # 행정구역 띄어쓰기 교정 (예: 남동 구 -> 남동구, 서 구 -> 서구)
-    addr_str = re.sub(r'남동\s+구', '남동구', addr_str)
-    addr_str = re.sub(r'서\s+구', '서구', addr_str)
-    addr_str = re.sub(r'간\s+석동', '간석동', addr_str)
-    addr_str = re.sub(r'가\s+능동', '가능동', addr_str)
+with col1:
+    uploaded_master = st.file_uploader("📂 기존 통합 관리 엑셀 파일 업로드 (.xlsx)", type=["xlsx"])
+with col2:
+    uploaded_daily = st.file_uploader("📄 오늘 출고/우편배송 폼 파일 업로드 (.xls / .xlsx)", type=["xls", "xlsx"])
 
-    # 슬래시 및 하이픈 동/호수 교정
-    addr_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', addr_str)
-    addr_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', addr_str)
-    
-    # 동/호 띄어쓰기 교정 (예: 111 동 1404 -> 111동 1404, 111 동 -> 111동)
-    addr_str = re.sub(r'\b(\d+)\s+동\s*(\d+)\b', r'\1동 \2', addr_str)
-    addr_str = re.sub(r'\b(\d+)\s+동\b', r'\1동', addr_str)
-    addr_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', addr_str)
-    
-    # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
-    addr_str = re.sub(r'동(\d)', r'동 \1', addr_str)
+target_date = st.date_input("📅 정산 적용 출고 일자 선택")
 
-    # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
-    addr_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', addr_str)
-
-    # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
-    addr_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', addr_str)
-
-    words = addr_str.split()
-    clean_words = []
-    for w in words:
-        clean_w = w.strip('(),')
-        if not clean_words or clean_w != clean_words[-1].strip('(),'):
-            clean_words.append(w)
-            
-    return ' '.join(clean_words)
-
-# --- [ 만능 주소 변환 엔진 ] ---
-def master_juso_converter(keyword):
-    if not keyword or pd.isna(keyword):
-        return keyword
-        
-    kw_str = str(keyword).strip()
-    
-    # 0. 행정구역 및 슬래시/하이픈, 동/호수 띄어쓰기 사전 전처리
-    kw_str = re.sub(r'남동\s+구', '남동구', kw_str)
-    kw_str = re.sub(r'서\s+구', '서구', kw_str)
-    kw_str = re.sub(r'(\d+)\s*/\s*(\d+)', r'\1동 \2호', kw_str)
-    kw_str = re.sub(r'\b(\d{1,4})\s*-\s*(\d{3,4})호?\b', r'\1동 \2호', kw_str)
-    
-    # 동/호 띄어쓰기 교정 (예: 111 동 1404 -> 111동 1404, 111 동 -> 111동)
-    kw_str = re.sub(r'\b(\d+)\s+동\s*(\d+)\b', r'\1동 \2', kw_str)
-    kw_str = re.sub(r'\b(\d+)\s+동\b', r'\1동', kw_str)
-    kw_str = re.sub(r'\b(\d+)\s+호\b', r'\1호', kw_str)
-    
-    # 동 바로 뒤에 숫자가 붙어 있는 경우 한 칸 띄우기 (예: 101동1406호 -> 101동 1406호)
-    kw_str = re.sub(r'동(\d)', r'동 \1', kw_str)
-
-    # 아파트 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: 111동 1404 -> 111동 1404호)
-    kw_str = re.sub(r'\b(\d+동)\s+(\d+)(?!호)\b', r'\1 \2호', kw_str)
-
-    # 알파벳/단일 문자 동 번호 뒤에 숫자가 있고 '호'가 없는 경우 '호' 표기 추가 (예: A동 202 -> A동 202호)
-    kw_str = re.sub(r'\b([가A-Za-z]동)\s*(\d+)(?!호)\b', r'\1 \2호', kw_str)
-    
-    # [규칙 1] 특정 예외 매핑 체크
-    for target_key, override_addr in SPECIAL_EXCEPTIONS.items():
-        if target_key in kw_str:
-            extra_part = kw_str
-            for part in target_key.split():
-                extra_part = extra_part.replace(part, '')
-            if "소석리 626" in target_key:
-                extra_part = re.sub(r'충청북도|음성군|대소면|소석리|이안음성대소아파트|\b0\b', '', extra_part).strip()
-                return remove_duplicate_words(f"{override_addr} (이안음성대소아파트) {extra_part}")
-            elif "봉평동 148-1" in target_key:
-                extra_part = re.sub(r'경상남도|통영시|봉평동|148-1', '', extra_part).strip()
-                return remove_duplicate_words(f"{override_addr} {extra_part}")
-            else:
-                extra_part = re.sub(r'인천광역시|검단구|서구|불로동|영종구|\b0\b', '', extra_part).strip()
-                return remove_duplicate_words(f"{override_addr} {target_key} {extra_part}")
-
-    # [규칙 2] 인천 서구 불로동 -> 검단구 불로동 강제 매핑
-    if '불로동' in kw_str:
-        kw_str = kw_str.replace('서구', '검단구').replace('서해구', '검단구')
-        if '인천광역시 검단구' not in kw_str and '인천 검단구' not in kw_str:
-            kw_str = re.sub(r'인천광역시\s+서구', '인천광역시 검단구', kw_str)
-            kw_str = re.sub(r'인천\s+서구', '인천 검단구', kw_str)
-
-    # [규칙 3] 인천 중구 운서동(영종구 지역) -> 영종구 운서동 강제 매핑
-    if '운서동' in kw_str or any(d in kw_str for d in ['중산동', '운남동', '운북동']):
-        kw_str = kw_str.replace('중구', '영종구')
-        if '인천광역시 영종구' not in kw_str and '인천 영종구' not in kw_str:
-            kw_str = re.sub(r'인천광역시\s+중구', '인천광역시 영종구', kw_str)
-            kw_str = re.sub(r'인천\s+중구', '인천 영종구', kw_str)
-
-    # 1. 상세 부가정보(동/호수, 괄호 내용, 병원/기관명 등) 추출 및 원본에서 분리
-    extra_pattern = r'(?:\b\d+동\s*\d+호?|\b[가A-Za-z]\s*동\s*\d+호?|\b[가A-Za-z]\s*동\d+|\b[가A-Za-z]+동\d+|\d+호|\d+층|B\d+호|관리실|택배보관함|물리치료실|\([^)]+\)|[가-힣]+(?:의원|병원|한의원|이비인후과|내과|외과|치과|소아과|센터))'
-    extra_details = re.findall(extra_pattern, kw_str)
-    
-    # 검색용 쿼리 생성 시 상세 부가정보 일시 제거
-    search_q_str = re.sub(extra_pattern, '', kw_str)
-    search_q_str = ' '.join(search_q_str.split())
-
-    # 2. 건물명 뒤 '103-401' 형태를 '103동 104호'로 자동 변환
-    tokens_init = search_q_str.split()
-    processed_tokens = []
-    for i, t in enumerate(tokens_init):
-        if re.match(r'^\d+-\d+$', t):
-            prev_token = tokens_init[i-1] if i > 0 else ""
-            if prev_token and not any(prev_token.endswith(s) for s in ['동', '리', '가', '로', '길']):
-                parts = t.split('-')
-                processed_tokens.append(f"{parts[0]}동 {parts[1]}호")
-            else:
-                processed_tokens.append(t)
-        else:
-            processed_tokens.append(t)
-    search_q_str = " ".join(processed_tokens)
-    
-    # 3. 특수 예외 처리 (월산동 등)
-    if '월산동 986-3' in search_q_str or '월산동 986' in search_q_str:
-        extra = search_q_str.replace('광주광역시', '').replace('전남광주통합특별시', '').replace('남구', '').replace('월산동', '').replace('986-3', '').replace('986', '').strip()
-        return remove_duplicate_words(f"광주광역시 남구 대남대로 363 {extra} {' '.join(extra_details)}".strip())
-
-    # 4. 스마트 토큰 분리 (읍, 면 단위를 주소 구역으로 올바르게 인식하도록 추가)
-    base_tokens = search_q_str.split()
-    sido_sigungu_dong_tokens = []
-    jibeon_token = ""
-    building_tokens = []
-    
-    for t in base_tokens:
-        if re.match(r'^\d+(-\d+)?$', t) or re.match(r'^산\d+(-\d+)?$', t):
-            jibeon_token = t
-        elif any(t.endswith(s) for s in ['도', '시', '구', '군', '읍', '면', '동', '리', '가', '로', '길']) and t != '시':
-            if not jibeon_token:
-                sido_sigungu_dong_tokens.append(t)
-            else:
-                building_tokens.append(t)
-        else:
-            building_tokens.append(t)
-
-    sido_sigungu_dong = " ".join(sido_sigungu_dong_tokens)
-    building_name_candidate = " ".join(building_tokens)
-    
-    # 사용자가 입력한 맨 끝 상호명/가게이름 백업
-    original_building_candidate = building_name_candidate.strip()
-
-    # 5. 다단계 검색 후보군 생성
-    query_candidates = []
-    
-    if '불로동' in search_q_str:
-        if sido_sigungu_dong and jibeon_token:
-            query_candidates.append(f"인천광역시 검단구 불로동 {jibeon_token}")
-        query_candidates.append(search_q_str.replace('서구', '검단구').replace('서해구', '검단구'))
-
-    elif '서구' in search_q_str:
-        seohae_q = search_q_str.replace('서구', '서해구')
-        if sido_sigungu_dong and jibeon_token:
-            seohae_dong = sido_sigungu_dong.replace('서구', '서해구')
-            query_candidates.append(f"{seohae_dong} {jibeon_token}")
-        query_candidates.append(seohae_q)
-
-    if '운서동' in search_q_str:
-        if sido_sigungu_dong and jibeon_token:
-            query_candidates.append(f"인천광역시 영종구 운서동 {jibeon_token}")
-        query_candidates.append(search_q_str.replace('중구', '영종구'))
-
-    if sido_sigungu_dong and jibeon_token:
-        query_candidates.append(f"{sido_sigungu_dong} {jibeon_token}")
-        
-    if search_q_str not in query_candidates:
-        query_candidates.append(search_q_str)
-        
-    if sido_sigungu_dong and building_name_candidate:
-        query_candidates.append(f"{sido_sigungu_dong} {building_name_candidate}")
-
-    base_road_addr = ""
-    api_bd_nm = ""
-    is_user_sangga = '상가' in kw_str
-    
-    for q in query_candidates:
-        if not q.strip():
-            continue
-        url = f"https://business.juso.go.kr/addrlink/addrLinkApi.do?currentPage=1&countPerPage=10&keyword={urllib.parse.quote(q)}&confmKey={CONFIRM_KEY}&resultType=json"
-        
+if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="primary"):
+    if uploaded_master is None or uploaded_daily is None:
+        st.error("기존 통합 엑셀 파일과 오늘의 출고 폼 파일을 모두 업로드해 주세요!")
+    else:
         try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                res = response.json()
-                juso_list = res.get('results', {}).get('juso') or []
-                
-                if juso_list:
-                    selected_juso = None
-                    
-                    for juso in juso_list:
-                        bd_name = juso.get('bdNm', '').strip()
-                        if not is_user_sangga and '상가' in bd_name:
-                            continue
-                        if bd_name and building_name_candidate and (bd_name in building_name_candidate or building_name_candidate in bd_name):
-                            selected_juso = juso
-                            break
-
-                    if not selected_juso and not is_user_sangga:
-                        for juso in juso_list:
-                            if '상가' not in juso.get('bdNm', ''):
-                                selected_juso = juso
-                                break
-
-                    if not selected_juso:
-                        selected_juso = juso_list[0]
-
-                    base_road_addr = selected_juso.get('roadAddr')
-                    api_bd_nm = selected_juso.get('bdNm', '')
-
-                    if base_road_addr:
-                        break
-        except Exception:
-            continue
-
-    if not base_road_addr:
-        return remove_duplicate_words(kw_str)
-
-    # 운서동 등 영종구 지역인 경우 API 결과 내 중구를 영종구로 보정
-    if '운서동' in base_road_addr or '운서동' in kw_str or any(d in kw_str for d in ['중산동', '운남동', '운북동']):
-        base_road_addr = base_road_addr.replace('인천광역시 중구', '인천광역시 영종구').replace('인천 중구', '인천 영종구')
-
-    # 6. 아파트/건물명 보완 결합
-    target_bd = api_bd_nm.strip() if api_bd_nm else original_building_candidate
-    if target_bd and target_bd not in base_road_addr:
-        base_road_addr = f"{base_road_addr} {target_bd}"
-
-    # 사용자가 입력했던 원래 상호명/메모가 결과에 없다면 맨 끝에 확실하게 부착
-    if original_building_candidate and original_building_candidate != api_bd_nm and original_building_candidate not in base_road_addr:
-        base_road_addr = f"{base_road_addr} {original_building_candidate}"
-
-    # 7. 최종 결과 조합: 도로명 주소 맨 뒤에 중복되지 않는 상세 부가정보(extra_details) 배치
-    full_result = base_road_addr
-    if extra_details:
-        needed_details = []
-        for p in extra_details:
-            p_clean = re.sub(r'[\s(),]', '', p)
-            base_clean = re.sub(r'[\s(),]', '', base_road_addr)
-            p_norm = p_clean.replace('LH', '엘에이치')
-            base_norm = base_clean.replace('LH', '엘에이치')
-
-            if p_clean and (p_clean in base_clean or p_norm in base_norm):
-                continue
-
-            is_redundant_building_paren = False
-            if p.startswith('(') and p.endswith(')'):
-                inner = p[1:-1]
-                inner_norm = re.sub(r'[\s동시구군읍면리아파트빌딩단지]', '', inner).replace('LH', '엘에이치')
-                base_inner_norm = re.sub(r'[\s동시구군읍면리아파트빌딩단지]', '', base_road_addr).replace('LH', '엘에이치')
-                if inner_norm and inner_norm in base_inner_norm:
-                    is_redundant_building_paren = True
-                else:
-                    for token in inner.split(','):
-                        token_clean = token.strip().replace('아파트', '').replace('빌딩', '').replace('단지', '').replace('동', '')
-                        token_norm = token_clean.replace('LH', '엘에이치')
-                        if len(token_norm) >= 2 and token_norm in base_road_addr.replace('LH', '엘에이치'):
-                            is_redundant_building_paren = True
-                            break
-
-            if is_redundant_building_paren:
-                continue
-
-            if p not in base_road_addr:
-                needed_details.append(p)
-
-        if needed_details:
-            full_result = f"{base_road_addr} {' '.join(needed_details)}"
-
-    return remove_duplicate_words(full_result)
-
-
-# --- [ Streamlit 웹 UI ] ---
-st.set_page_config(page_title="자동 주소 변환기", page_icon="🚚", layout="centered")
-
-st.title("🚚 만능 주소 변환 & 엑셀 정제 웹 앱")
-st.write("엑셀 파일을 업로드하면 도로명 주소 변환, 우편번호 0 보존, 엑셀 서식을 자동으로 적용해 줍니다.")
-
-uploaded_file = st.file_uploader("변환할 엑셀 파일(.xlsx, .xls)을 업로드하세요", type=["xlsx", "xls"])
-
-if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file)
-    st.write("### 📄 업로드 데이터 미리보기 (상위 5건)")
-    st.dataframe(df.head())
-
-    if st.button("🚀 주소 변환 및 서식 적용 시작"):
-        with st.spinner("주소를 변환하는 중입니다... 데이터 양에 따라 시간이 걸릴 수 있습니다."):
-            if '우편번호' in df.columns:
-                df['우편번호'] = df['우편번호'].apply(fix_zipcode)
-
-            if '배송지' in df.columns:
-                progress_bar = st.progress(0)
-                total = len(df)
-                
-                converted_addrs = []
-                for i, row in df.iterrows():
-                    res = master_juso_converter(row['배송지'])
-                    converted_addrs.append(res)
-                    progress_bar.progress((i + 1) / total)
-                    
-                df['배송지'] = converted_addrs
+            # 엑셀 워크북 로드
+            wb = openpyxl.load_workbook(uploaded_master)
+            ws_log = wb['출고세부일지']
+            ws_daily = wb['일별판매표']
+            
+            # 일일 출고 폼 읽기
+            if uploaded_daily.name.endswith('.xls'):
+                df_daily = pd.read_excel(uploaded_daily, sheet_name=0, engine='xlrd')
             else:
-                st.warning("[주의] '배송지' 컬럼을 찾을 수 없습니다.")
-
-            target_columns = ['수취인명', '전화', '우편번호', '배송지', '선택정보', '기타', '구분']
-            if len(df.columns) == len(target_columns):
-                df.columns = target_columns
-
-            # 엑셀 에러(IllegalCharacterError) 방지를 위한 비정상 제어 문자 제거 처리
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].apply(lambda x: ILLEGAL_CHARACTERS_RE.sub(r'', x) if isinstance(x, str) else x)
-
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False)
-                worksheet = writer.sheets['Sheet1']
+                df_daily = pd.read_excel(uploaded_daily, sheet_name=0)
                 
-                font_size_8 = Font(size=8)
-                for row in worksheet.iter_rows(min_row=1, max_row=worksheet.max_row, min_col=1, max_col=len(df.columns)):
-                    worksheet.row_dimensions[row[0].row].height = 18
-                    for cell in row:
-                        cell.font = font_size_8
-                        
-                if '우편번호' in df.columns:
-                    zip_col_idx = df.columns.get_loc('우편번호') + 1
-                    for row in range(2, worksheet.max_row + 1):
-                        worksheet.cell(row=row, column=zip_col_idx).number_format = '@'
+            date_str = target_date.strftime("%Y-%m-%d")
+            
+            # 1. 해당 날짜 데이터가 이미 있으면 기존 행 삭제 (중복 방지 / 덮어쓰기 기능)
+            rows_to_delete = []
+            for r in range(4, ws_log.max_row + 1):
+                row_date = ws_log.cell(row=r, column=1).value
+                if row_date and str(row_date).startswith(date_str):
+                    rows_to_delete.append(r)
+            
+            # 뒤에서부터 삭제
+            for r in reversed(rows_to_delete):
+                ws_log.delete_rows(r)
+                
+            # 2. 새 데이터 출고세부일지에 추가 (Append)
+            # 빈 행 찾기
+            next_row = ws_log.max_row + 1
+            if next_row < 4:
+                next_row = 4
+                
+            max_p_row = 35 # 상품단가표 기준 행
+            
+            for idx, row in df_daily.iterrows():
+                recipient = row.get('수취인명', '')
+                opt = str(row.get('선택정보', '')).strip()
+                qty_val = row.get('Unnamed: 6', 1) if 'Unnamed: 6' in row else 1
+                
+                has_film = False
+                if '+필름' in opt or '필름' in opt:
+                    has_film = True
+                    
+                clean_model = opt.replace('+필름', '').replace('필름', '').strip()
+                clean_model = re.sub(r'\[\d+\]', '', clean_model).strip()
+                clean_model = clean_model.replace(' 택배', '').strip()
+                
+                if clean_model == 'A20/A30':
+                    model = 'A20/30'
+                elif clean_model in ['노트10플러스', '노트10']:
+                    model = '노트10플러스'
+                elif clean_model == 'S10 5G':
+                    model = 'S10'
+                else:
+                    model = clean_model
+                    
+                qty = int(qty_val) if pd.notna(qty_val) else 1
+                if '[2]' in opt:
+                    qty = 2
+                elif '[3]' in opt:
+                    qty = 3
+                    
+                ship_type = '우편(1개)'
+                if qty == 2 or '우편(2개)' in opt:
+                    ship_type = '우편(2개)'
+                elif has_film:
+                    ship_type = '등기(필름)'
+                elif '택배' in opt:
+                    ship_type = '택배'
+                    
+                curr_row = next_row + idx
+                ws_log.cell(row=curr_row, column=1, value=date_str)
+                ws_log.cell(row=curr_row, column=2, value=recipient)
+                ws_log.cell(row=curr_row, column=3, value=opt)
+                ws_log.cell(row=curr_row, column=4, value=model)
+                ws_log.cell(row=curr_row, column=5, value=ship_type)
+                ws_log.cell(row=curr_row, column=6, value=qty)
+                
+                # 수식 입력
+                ws_log.cell(row=curr_row, column=7, value=f'=IF(E{curr_row}="등기(필름)", 4900, IF(E{curr_row}="우편(1개)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 3, FALSE), IF(E{curr_row}="우편(2개)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 4, FALSE)/2, IF(E{curr_row}="등기", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 5, FALSE), VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 6, FALSE)))))')
+                ws_log.cell(row=curr_row, column=8, value=f'=IF(E{curr_row}="등기(필름)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 2, FALSE) + 1200, VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 2, FALSE))')
+                ws_log.cell(row=curr_row, column=9, value=f'=IF(OR(E{curr_row}="등기(필름)", E{curr_row}="등기"), 1800, IF(E{curr_row}="우편(1개)", 590, IF(E{curr_row}="우편(2개)", 710, 2600)))')
+                ws_log.cell(row=curr_row, column=10, value=f'=F{curr_row}*G{curr_row}')
+                ws_log.cell(row=curr_row, column=11, value=f'=F{curr_row}*H{curr_row}')
+                ws_log.cell(row=curr_row, column=12, value=f'=I{curr_row}')
+                ws_log.cell(row=curr_row, column=13, value=f'=J{curr_row}-K{curr_row}-L{curr_row}')
+                
+                # 서식 적용
+                for c in range(1, 14):
+                    cell = ws_log.cell(row=curr_row, column=c)
+                    cell.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
+                    cell.border = openpyxl.styles.Border(left=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+                                                         right=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+                                                         top=openpyxl.styles.Side(style='thin', color='D9D9D9'),
+                                                         bottom=openpyxl.styles.Side(style='thin', color='D9D9D9'))
+                    if c in [6, 7, 8, 9, 10, 11, 12, 13]:
+                        cell.alignment = openpyxl.styles.Alignment(horizontal='right', vertical='center')
+                        cell.number_format = '#,##0'
+                    else:
+                        cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
 
-            excel_data = output.getvalue()
-
-        st.success("🎉 변환이 완벽하게 완료되었습니다!")
-        
-        st.download_button(
-            label="📥 변환된 엑셀 파일 다운로드",
-            data=excel_data,
-            file_name="우편배송_변환결과.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            # 가상 메모리에 저장
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 {len(df_daily)}건 처리 완료)")
+            
+            # 다운로드 버튼 제공
+            st.download_button(
+                label="📥 정산 완료된 엑셀 파일 다운로드하기",
+                data=output,
+                file_name=f"사무실_통합정산관리표_{date_str}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+        except Exception as e:
+            st.error(f"처리 중 오류가 발생했습니다: {e}")
