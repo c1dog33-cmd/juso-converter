@@ -45,12 +45,10 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                 if row_date and str(row_date).startswith(date_str):
                     rows_to_delete.append(r)
             
-            # 뒤에서부터 삭제
             for r in reversed(rows_to_delete):
                 ws_log.delete_rows(r)
                 
             # 2. 새 데이터 출고세부일지에 추가 (Append)
-            # 빈 행 찾기
             next_row = ws_log.max_row + 1
             if next_row < 4:
                 next_row = 4
@@ -60,7 +58,15 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
             for idx, row in df_daily.iterrows():
                 recipient = row.get('수취인명', '')
                 opt = str(row.get('선택정보', '')).strip()
-                qty_val = row.get('Unnamed: 6', 1) if 'Unnamed: 6' in row else 1
+                
+                # 수량 안전하게 파싱 (문자열이 섞여 있거나 에러가 나면 무조건 1로 처리)
+                qty_raw = row.get('Unnamed: 6', 1) if 'Unnamed: 6' in row else 1
+                qty = 1
+                try:
+                    if pd.notna(qty_raw):
+                        qty = int(float(str(qty_raw).strip()))
+                except:
+                    qty = 1
                 
                 has_film = False
                 if '+필름' in opt or '필름' in opt:
@@ -79,7 +85,6 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                 else:
                     model = clean_model
                     
-                qty = int(qty_val) if pd.notna(qty_val) else 1
                 if '[2]' in opt:
                     qty = 2
                 elif '[3]' in opt:
