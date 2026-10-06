@@ -7,7 +7,7 @@ import re
 st.set_page_config(page_title="사무실 통합 재고 및 매출 정산 시스템", layout="wide")
 
 st.title("🏢 사무실 통합 재고 및 매출 정산 대시보드")
-st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 폰트·서식이 깔끔하게 정돈된 최종 엑셀 파일을 다운로드하실 수 있습니다.")
+st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 일별판매표까지 완벽하게 연동됩니다.")
 
 # 1. 파일 업로드 섹션
 st.subheader("1. 파일 업로드")
@@ -59,7 +59,7 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                 recipient = row.get('수취인명', '')
                 opt = str(row.get('선택정보', '')).strip()
                 
-                # 수량 안전하게 파싱 (문자열이 섞여 있거나 에러가 나면 무조건 1로 처리)
+                # 수량 안전하게 파싱
                 qty_raw = row.get('Unnamed: 6', 1) if 'Unnamed: 6' in row else 1
                 qty = 1
                 try:
@@ -129,12 +129,32 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                     else:
                         cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
 
+            # 3. [추가] 일별판매표(마스터 시트)에 출고세부일지 데이터를 날짜별/모델별로 자동 집계하는 수식 적용
+            # 일별판매표 모델명은 7행부터 시작 (예: A20/30은 7행, 마지막 모델은 38행)
+            max_log_row = ws_log.max_row
+            for r in range(7, 39):  # 모델 목록이 있는 행 범위
+                model_name = ws_daily.cell(row=r, column=2).value # B열: 모델명
+                if model_name:
+                    # I열(9번째 열, 1일)부터 AM열(39번째 열, 31일)까지 날짜별 수량 집계 수식 자동 삽입
+                    for day_idx in range(1, 32):
+                        col_letter = openpyxl.utils.get_column_letter(8 + day_idx) # I열은 9열(8+1)
+                        # 해당 날짜 문자열 구성 (예: '2026-10-01')
+                        d_str = f"{target_date.strftime('%Y-%m')}-{day_idx:02d}"
+                        
+                        # SUMIFS 수식: 출고세부일지에서 모델명과 날짜가 일치하는 수량(F열) 합산
+                        formula = f'=SUMIFS(출고세부일지!$F$4:$F${max_log_row}, 출고세부일지!$D$4:$D${max_log_row}, B{r}, 출고세부일지!$A$4:$A${max_log_row}, "{d_str}")'
+                        
+                        cell = ws_daily.cell(row=r, column=8 + day_idx)
+                        cell.value = formula
+                        cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+                        cell.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
+
             # 가상 메모리에 저장
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             
-            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 {len(df_daily)}건 처리 완료)")
+            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 출고 내역 및 일별판매표 연동 완료)")
             
             # 다운로드 버튼 제공
             st.download_button(
