@@ -7,7 +7,7 @@ import re
 st.set_page_config(page_title="사무실 통합 재고 및 매출 정산 시스템", layout="wide")
 
 st.title("🏢 사무실 통합 재고 및 매출 정산 대시보드")
-st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 일별판매표까지 완벽하게 연동됩니다.")
+st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 일별판매표와 상단 요약 지표까지 완벽하게 연동됩니다.")
 
 # 1. 파일 업로드 섹션
 st.subheader("1. 파일 업로드")
@@ -109,7 +109,7 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                 # 수식 입력
                 ws_log.cell(row=curr_row, column=7, value=f'=IF(E{curr_row}="등기(필름)", 4900, IF(E{curr_row}="우편(1개)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 3, FALSE), IF(E{curr_row}="우편(2개)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 4, FALSE)/2, IF(E{curr_row}="등기", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 5, FALSE), VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 6, FALSE)))))')
                 ws_log.cell(row=curr_row, column=8, value=f'=IF(E{curr_row}="등기(필름)", VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 2, FALSE) + 1200, VLOOKUP(D{curr_row}, 상품단가표!$B$4:$G${max_p_row}, 2, FALSE))')
-                ws_log.cell(row=curr_row, column=9, value=f'=IF(OR(E{curr_row}="등기(필름)", E{curr_row}="등기"), 1800, IF(E{curr_row}="우편(1개)", 590, IF(E{curr_row}="우편(2개)", 710, 2600)))')
+                ws_log.cell(row=curr_row, column=9, value=f'=IF(OR(E{curr_row}="등기(필름)", E{curr_row}="등기"), 1800, IF(E{curr_row}="우편(1le)", 590, IF(E{curr_row}="우편(2개)", 710, 2600)))')
                 ws_log.cell(row=curr_row, column=10, value=f'=F{curr_row}*G{curr_row}')
                 ws_log.cell(row=curr_row, column=11, value=f'=F{curr_row}*H{curr_row}')
                 ws_log.cell(row=curr_row, column=12, value=f'=I{curr_row}')
@@ -129,32 +129,38 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                     else:
                         cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
 
-            # 3. [추가] 일별판매표(마스터 시트)에 출고세부일지 데이터를 날짜별/모델별로 자동 집계하는 수식 적용
-            # 일별판매표 모델명은 7행부터 시작 (예: A20/30은 7행, 마지막 모델은 38행)
+            # 3. 일별판매표 수식 연동 및 0값 보기 좋게 숨기기 설정 (셀 서식 '0;-0;""')
             max_log_row = ws_log.max_row
-            for r in range(7, 39):  # 모델 목록이 있는 행 범위
+            for r in range(7, 39):  # 모델 목록 행 범위
                 model_name = ws_daily.cell(row=r, column=2).value # B열: 모델명
                 if model_name:
-                    # I열(9번째 열, 1일)부터 AM열(39번째 열, 31일)까지 날짜별 수량 집계 수식 자동 삽입
                     for day_idx in range(1, 32):
-                        col_letter = openpyxl.utils.get_column_letter(8 + day_idx) # I열은 9열(8+1)
-                        # 해당 날짜 문자열 구성 (예: '2026-10-01')
+                        col_idx = 8 + day_idx # I열(9)부터 AM열(39)
                         d_str = f"{target_date.strftime('%Y-%m')}-{day_idx:02d}"
                         
-                        # SUMIFS 수식: 출고세부일지에서 모델명과 날짜가 일치하는 수량(F열) 합산
                         formula = f'=SUMIFS(출고세부일지!$F$4:$F${max_log_row}, 출고세부일지!$D$4:$D${max_log_row}, B{r}, 출고세부일지!$A$4:$A${max_log_row}, "{d_str}")'
                         
-                        cell = ws_daily.cell(row=r, column=8 + day_idx)
+                        cell = ws_daily.cell(row=r, column=col_idx)
                         cell.value = formula
                         cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
                         cell.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
+                        # 값이 0일 때 빈칸처럼 보이게 하는 엑셀 사용자 지정 서식 적용
+                        cell.number_format = '#,##0;(#,##0);""'
+
+            # 4. 상단 요약 지표(월 총 출고량 등) 자동 계산 수식 주입
+            # 월수량 합계 (D열)
+            ws_daily['B4'] = '=SUM(D7:D38)'
+            # 월 총 매출액 (E열)
+            ws_daily['H4'] = '=SUM(E7:E38)'
+            # 월 총 순이익 (H열)
+            ws_daily['J4'] = '=SUM(H7:H38)'
 
             # 가상 메모리에 저장
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             
-            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 출고 내역 및 일별판매표 연동 완료)")
+            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 출고 내역, 일별판매표 및 상단 요약 연동 완료)")
             
             # 다운로드 버튼 제공
             st.download_button(
