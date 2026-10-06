@@ -7,7 +7,7 @@ import re
 st.set_page_config(page_title="사무실 통합 재고 및 매출 정산 시스템", layout="wide")
 
 st.title("🏢 사무실 통합 재고 및 매출 정산 대시보드")
-st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 일별판매표와 일별 매출 합계까지 완벽하게 연동됩니다.")
+st.write("매일 우편배송/택배 출력 폼을 업로드하면, 기존 장부에 자동 누적 합산되고 일별판매표와 하단 합계표까지 완벽하게 연동됩니다.")
 
 # 1. 파일 업로드 섹션
 st.subheader("1. 파일 업로드")
@@ -72,9 +72,9 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                 if '+필름' in opt or '필름' in opt:
                     has_film = True
                     
-                # 모델명 정제 로직 강화 (신규 옵션 및 괄호, 택배 글자 깔끔하게 정리)
+                # 모델명 정제 로직 강화
                 clean_model = opt.replace('+필름', '').replace('필름', '').strip()
-                clean_model = re.sub(r'\[\d+\]', '', clean_model).strip() # [2], [100] 등 제거
+                clean_model = re.sub(r'\[\d+\]', '', clean_model).strip()
                 clean_model = clean_model.replace(' 택배', '').strip()
                 clean_model = clean_model.replace('택배', '').strip()
                 
@@ -152,30 +152,38 @@ if st.button("🚀 정산 및 대시보드 자동 업데이트 실행", type="pr
                         cell.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
                         cell.number_format = '#,##0;(#,##0);""'
 
-            # 4. 상단 요약 지표 및 하단 일별 매출액 합계 수식 자동 주입
+            # 4. 상단 요약 지표 주입
             ws_daily['B4'] = '=SUM(D7:D38)'
             ws_daily['H4'] = '=SUM(E7:E38)'
             ws_daily['J4'] = '=SUM(H7:H38)'
 
-            # 하단 일별 매출액 (40행, I열~AM열에 각 날짜별 총 매출액 자동 계산 수식 삽입)
+            # 5. [추가/보완] 1일(I)부터 31일(AM)까지 모든 날짜의 하단 합계(39행) 및 일별 매출액(40행) 수식 자동 주입
             for day_idx in range(1, 32):
-                col_letter = openpyxl.utils.get_column_letter(8 + day_idx)
+                col_idx = 8 + day_idx
+                col_letter = openpyxl.utils.get_column_letter(col_idx)
                 d_str = f"{target_date.strftime('%Y-%m')}-{day_idx:02d}"
-                # 출고세부일지에서 해당 날짜의 총 매출액(J열)을 모두 합산
-                sales_formula = f'=SUMIF(출고세부일지!$A$4:$A${max_log_row}, "{d_str}", 출고세부일지!$J$4:$J${max_log_row})'
                 
-                cell = ws_daily.cell(row=40, column=8 + day_idx)
-                cell.value = sales_formula
-                cell.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
-                cell.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
-                cell.number_format = '#,##0;(#,##0);""'
+                # 39행: 해당 날짜의 모델별 판매 수량 합계 (SUM)
+                cell_sum = ws_daily.cell(row=39, column=col_idx)
+                cell_sum.value = f'=SUM({col_letter}7:{col_letter}38)'
+                cell_sum.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+                cell_sum.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
+                cell_sum.number_format = '#,##0;(#,##0);""'
+
+                # 40행: 출고세부일지 기반 해당 날짜의 총 매출액 합계 (SUMIF)
+                sales_formula = f'=SUMIF(출고세부일지!$A$4:$A${max_log_row}, "{d_str}", 출고세부일지!$J$4:$J${max_log_row})'
+                cell_sales = ws_daily.cell(row=40, column=col_idx)
+                cell_sales.value = sales_formula
+                cell_sales.alignment = openpyxl.styles.Alignment(horizontal='center', vertical='center')
+                cell_sales.font = openpyxl.styles.Font(name='맑은 고딕', size=10)
+                cell_sales.number_format = '#,##0;(#,##0);""'
 
             # 가상 메모리에 저장
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             
-            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 출고 내역, 일별판매표, 상단 요약 및 일별 매출액 연동 완료)")
+            st.success(f"🎉 성공적으로 반영되었습니다! ({date_str} 기준 출고 내역, 일별판매표 및 전체 하단 합계 연동 완료)")
             
             # 다운로드 버튼 제공
             st.download_button(
