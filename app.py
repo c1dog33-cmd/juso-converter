@@ -57,20 +57,44 @@ def clean_product_name(val):
     s = str(val).strip()
     
     has_film = False
-    # 🚀 엑셀 옵션에 '필름' 또는 '액정'이 포함되어 있고 '필요없음'이 아닌 경우 필름 추가로 인식
     if ('필름' in s or '액정' in s) and '필요없음' not in s and '선택안함' not in s:
         if '추가' in s or '장' in s or '풀액정' in s or '필름' in s:
             has_film = True
 
     target_texts = [s]
-    # 🚀 '모델선택_' 및 '모델선택:'이 포함된 경우 상세 옵션 영역을 최우선으로 추출하도록 수정
     if '모델선택_' in s: target_texts.insert(0, s.split('모델선택_')[-1])
     if '모델선택:' in s: target_texts.insert(0, s.split('모델선택:')[-1])
     if '//' in s: target_texts.insert(0, s.split('//')[-1])
     if '/' in s: target_texts.insert(0, s.split('/')[-1])
 
+    # 🚀 갤럭시 버즈 시리즈(버즈3, 버즈4 등) 감지 패턴 추가
+    buds_match = None
+    buds_pattern = r'(버즈\s*\d+\s*(?:프로|FE)?|버즈\s*(?:프로|FE))'
+    for t in target_texts:
+        buds_match = re.search(buds_pattern, t, re.IGNORECASE)
+        if buds_match: break
+    if not buds_match:
+        buds_match = re.search(buds_pattern, s, re.IGNORECASE)
+
+    if buds_match:
+        raw_buds = buds_match.group(1).replace(" ", "")
+        target_model = f"삼성 {raw_buds}케이스"
+        
+        qty = 1
+        if '☞' in s:
+            parts = s.split('☞')
+            after = parts[1].strip() if len(parts) > 1 else ""
+            qty_match = re.match(r'^(\d+)\s*(EA|개)?', after, re.IGNORECASE)
+            if qty_match: qty = int(qty_match.group(1))
+        elif '/2개' in s or '2개' in s:
+            qty = 2
+        
+        res = f"{target_model}[{qty}]" if qty > 1 else target_model
+        if has_film: res += " +필름"
+        if '택배' in s or '택배배송' in s: res += " 택배"
+        return res
+
     smartphone_match = None
-    # 🚀 상세 기종명(울트라, 플러스 등)을 단독 기종보다 앞에 배치하여 우선 매칭
     pattern = r'(S\s*21\s*울트라|S\s*21\s*플러스|S\s*20\s*플러스|S\s*20\s*울트라|S\s*22\s*플러스|S\s*22\s*울트라|노트\s*10\s*플러스|노트\s*20\s*울트라|노트\s*20\s*플러스|노트\s*\d+\s*울트라|노트\s*\d+\s*플러스|노트\s*\d+|S\s*10\s*5G|S\s*\d+(?:\s*플러스|\s*울트라|\s*5G|\s*엣지)?|A\s*\d+|Z\s*(?:플립|폴드)\s*\d*|와이드\s*\d+|N\s*\d+|V\s*50S|V\s*50|V\s*\d+|벨벳|윙)'
 
     for t in target_texts:
@@ -107,7 +131,7 @@ def clean_product_name(val):
             qty = 2
         
         res = f"{target_model}[{qty}]" if qty > 1 else target_model
-        if has_film: res += " +필름"  # 🚀 '추가'를 제외하고 깔끔하게 '+필름' 결합
+        if has_film: res += " +필름"
         if '택배' in s or '택배배송' in s: res += " 택배"
         return res
     
@@ -160,7 +184,6 @@ def juso_gov_converter(keyword):
         
     kw_str = str(keyword).strip()
 
-    # 1. 이미 도로명주소(신주소) 형태인지 판별
     is_already_road_address = False
     if not (re.search(r'[로길]\s*\d+\s*[동읍면]', kw_str)):
         is_already_road_address = bool(re.search(r'[로길]\s*\d+', kw_str))
@@ -190,7 +213,6 @@ def juso_gov_converter(keyword):
         final_str = format_dong_ho(final_str)
         return ' '.join(final_str.split())
 
-    # --- 구주소(지번 주소)인 경우 ---
     parens = re.findall(r'\([^)]+\)', kw_str)
     paren_str = parens[-1] if parens else ""
     for p in parens:
@@ -342,7 +364,6 @@ if uploaded_file is not None:
 
             st.session_state.excel_data = output.getvalue()
 
-            # 🚀 안전하게 메모리 해제 처리
             del df
             if orig_wb is not None:
                 del orig_wb
